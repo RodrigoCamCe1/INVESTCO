@@ -1,25 +1,38 @@
+# Dependencias
 node_modules/
+
+# Builds
 dist/
+build/
+.next/
+out/
+
+# Env
 .env
 .env.local
+.env.*.local
+
+# Logs
 *.log
 npm-debug.log*
-.DS_Store
-Thumbs.db
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# IDE/OS
 .idea/
 .vscode/
+.DS_Store
+Thumbs.db
+
+# Tests/coverage
 coverage/
 .nyc_output/
 
-# Material de curso (no se distribuye)
-UML y Patrones (Craig Larman)*.pdf
-UML y patrones.pdf
-Capitulo17_GRASP_Investco_v3.pptx
+# Material de curso (no se distribuye, copyright)
+*.pdf
+*.pptx
+ANALISIS_BACKEND_INVESTCO.html
 Aplicacion_UML_Patrones_Investco*.html
-"Aplicación de UML y Patrones al Proyecto de Control de Obra - Investco.pdf"
-"Proyecto Control de obra Sistemas de informacion l.2025.pdf"
 proyecto_control_obra.txt
 md_to_pdf.py
-ANALISIS_BACKEND_INVESTCO.html
-ANALISIS_BACKEND_INVESTCO.pdf
-
