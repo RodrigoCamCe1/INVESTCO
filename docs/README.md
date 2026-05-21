@@ -4,6 +4,7 @@ Esta carpeta contiene la documentación formal del proyecto siguiendo la metodol
 
 ## Archivos
 
+- **`DIAGRAMAS_CU_v2.html`** — 41 diagramas detallados de casos de uso, uno por página. Pensado para imprimir y recortar para reemplazar los del documento original. Cada diagrama incluye: actor(es) stick figure, CU central, óvalos `<<include>>` (validaciones del sistema) arriba-derecha y óvalos `<<extend>>` (acciones alternativas) abajo, con flechas dashed y estereotipos UML.
 - **`PROYECTO_INVESTCO_v2.html`** — Documento principal. Abre en navegador. Incluye:
   - Caps 1-3 preservados del proyecto original (Introducción, Descripción del problema, Organigrama)
   - Cap 4 Parámetros del sistema
@@ -17,7 +18,8 @@ Esta carpeta contiene la documentación formal del proyecto siguiendo la metodol
   - Cap 12 Arquitectura por capas
   - Cap 13 Modelo de datos físico (schema Prisma)
   - Cap 14 Conclusiones
-- **`build_doc.py`** — Script Python que ensambla el HTML. Para regenerar: `python build_doc.py`
+- **`build_doc.py`** — Script Python que ensambla el HTML principal. Para regenerar: `python build_doc.py`
+- **`build_diagrams.py`** — Script Python que genera `DIAGRAMAS_CU_v2.html` (41 diagramas detallados estilo UML clásico).
 - **`assets/styles.css`** — Estilos monocromáticos académicos (similar al PDF original).
 
 ## Cómo regenerar
