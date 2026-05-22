@@ -1,0 +1,88 @@
+{
+  "compilerOptions": {
+    // ====================================================================
+    // VERSIÓN DEL LENGUAJE Y MÓDULOS
+    // ====================================================================
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "allowJs": true,
+    "checkJs": false,
+
+    // ====================================================================
+    // MODO ESTRICTO - CONFIGURACIÓN OBLIGATORIA
+    // ====================================================================
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+
+    // ====================================================================
+    // CONTROL DE TIPOS Y SEGURIDAD
+    // ====================================================================
+    "forceConsistentCasingInFileNames": true,
+    "useDefineForClassFields": true,
+    "useUnknownInCatchVariables": true,
+    "exactOptionalPropertyTypes": true,
+    "noPropertyAccessFromIndexSignature": true,
+
+    // ====================================================================
+    // EMISIÓN Y SALIDA
+    // ====================================================================
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "removeComments": true,
+    "noEmit": true,
+
+    // ====================================================================
+    // RESOLUCIÓN DE MÓDULOS
+    // ====================================================================
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@/components/*": ["./src/components/*"],
+      "@/hooks/*": ["./src/hooks/*"],
+      "@/lib/*": ["./src/lib/*"],
+      "@/types/*": ["./src/types/*"],
+      "@/store/*": ["./src/store/*"],
+      "@/providers/*": ["./src/providers/*"],
+      "@/services/*": ["./src/services/*"],
+      "@/utils/*": ["./src/utils/*"],
+      "@/constants/*": ["./src/constants/*"],
+      "@/middleware/*": ["./src/middleware/*"]
+    },
+
+    // ====================================================================
+    // CONFIGURACIÓN DE JSX
+    // ====================================================================
+    "jsx": "preserve",
+    "jsxImportSource": "react",
+
+    // ====================================================================
+    // INTEROPERABILIDAD
+    // ====================================================================
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules"],
+  "ts-node": {
+    "compilerOptions": {
+      "module": "CommonJS"
+    }
+  }
+}
