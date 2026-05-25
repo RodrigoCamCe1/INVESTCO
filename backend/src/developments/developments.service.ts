@@ -4,9 +4,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Development, DevelopmentStatus, Prisma } from '@prisma/client';
+import { Development, DevelopmentStatus, Prisma, Property } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateDevelopmentDto } from './dto/create-development.dto';
+import { BulkGenerateUnitsDto, SubdivideDto } from './dto/subdivide.dto';
 import { UpdateDevelopmentDto } from './dto/update-development.dto';
 
 const STATUS_ORDER: DevelopmentStatus[] = [
@@ -110,6 +111,58 @@ export class DevelopmentsService {
         ...(dto.status !== undefined && { status: dto.status }),
       },
     });
+  }
+
+  async subdivide(id: string, dto: SubdivideDto): Promise<Property[]> {
+    const dev = await this.prisma.development.findFirst({
+      where: { id, deletedAt: null },
+    });
+    if (!dev) throw new NotFoundException(`Desarrollo no encontrado: ${id}`);
+
+    // Verificación de códigos duplicados
+    const codes = dto.units.map((u) => u.code);
+    const existing = await this.prisma.property.findMany({
+      where: { code: { in: codes } },
+      select: { code: true },
+    });
+    if (existing.length > 0) {
+      throw new ConflictException(
+        `Códigos duplicados: ${existing.map((e) => e.code).join(', ')}`,
+      );
+    }
+
+    return this.prisma.$transaction(
+      dto.units.map((u) =>
+        this.prisma.property.create({
+          data: {
+            code: u.code,
+            type: u.type,
+            address: u.address ?? `${dev.address} · ${u.code}`,
+            zone: dev.zone,
+            m2: new Prisma.Decimal(u.m2),
+            developmentId: dev.id,
+            status: 'DISPONIBLE',
+          },
+        }),
+      ),
+    );
+  }
+
+  async bulkGenerateUnits(id: string, dto: BulkGenerateUnitsDto): Promise<Property[]> {
+    const dev = await this.prisma.development.findFirst({
+      where: { id, deletedAt: null },
+    });
+    if (!dev) throw new NotFoundException(`Desarrollo no encontrado: ${id}`);
+
+    const start = dto.startNumber ?? 1;
+    const units = Array.from({ length: dto.count }, (_, i) => ({
+      code: `${dev.code}-${dto.codePrefix}${String(start + i).padStart(3, '0')}`,
+      type: dto.type,
+      m2: dto.m2,
+    }));
+
+    // Reuso lógica subdivide
+    return this.subdivide(id, { units });
   }
 
   async remove(id: string): Promise<{ ok: true }> {

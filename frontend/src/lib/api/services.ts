@@ -1,6 +1,7 @@
 import { api } from "@/lib/api-client";
 import type {
   AcquisitionContract,
+  BulkGenerateUnitsInput,
   Client,
   Contract,
   CreateAcquisitionInput,
@@ -19,6 +20,7 @@ import type {
   Project,
   Property,
   Reservation,
+  SubdivideInput,
   UpdateClientInput,
   UpdateDevelopmentInput,
   UpdatePermitInput,
@@ -156,6 +158,14 @@ export const developmentsApi = {
   },
   remove: async (id: string): Promise<void> => {
     await api.delete(`/developments/${id}`);
+  },
+  subdivide: async (id: string, dto: SubdivideInput): Promise<Property[]> => {
+    const { data } = await api.post<Property[]>(`/developments/${id}/subdivide`, dto);
+    return data;
+  },
+  bulkGenerateUnits: async (id: string, dto: BulkGenerateUnitsInput): Promise<Property[]> => {
+    const { data } = await api.post<Property[]>(`/developments/${id}/bulk-generate-units`, dto);
+    return data;
   },
 };
 

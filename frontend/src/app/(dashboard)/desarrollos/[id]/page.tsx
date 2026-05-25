@@ -799,12 +799,57 @@ function CMFormCmp({
 }
 
 // === UNITS TAB ===
-function UnitsTab({ dev }: { dev: { units?: Array<{ id: string; code: string; type: string; address: string; m2: string; status: string }>; estimatedUnits: number } }) {
+const bulkSchema = z.object({
+  count: z.coerce.number().int().min(1).max(200),
+  codePrefix: z.string().min(1, "Prefijo requerido"),
+  type: z.enum(["LOTE", "CASA", "DEPTO", "DUPLEX"]),
+  m2: z.coerce.number().min(0.01),
+  startNumber: z.coerce.number().int().min(1),
+});
+type BulkForm = z.infer<typeof bulkSchema>;
+
+function UnitsTab({ dev }: { dev: { id: string; estimatedUnits: number; status: string; units?: Array<{ id: string; code: string; type: string; address: string; m2: string; status: string }> } }) {
+  const qc = useQueryClient();
+  const [bulkOpen, setBulkOpen] = React.useState(false);
+
+  const bulkMut = useMutation({
+    mutationFn: (d: BulkForm) => developmentsApi.bulkGenerateUnits(dev.id, {
+      count: d.count,
+      codePrefix: d.codePrefix,
+      type: d.type,
+      m2: d.m2,
+      startNumber: d.startNumber,
+    }),
+    onSuccess: (created) => {
+      qc.invalidateQueries({ queryKey: ["development", dev.id] });
+      qc.invalidateQueries({ queryKey: ["properties"] });
+      qc.invalidateQueries({ queryKey: ["dash"] });
+      toast.success(`${created.length} unidades generadas`);
+      setBulkOpen(false);
+    },
+    onError: (e) => toast.error("Error al generar", { description: extractApiError(e) }),
+  });
+
   const units = dev.units ?? [];
+  const canSubdivide = dev.status === "EN_CONSTRUCCION" || dev.status === "COMERCIALIZACION" || dev.status === "PERMISOS";
+
   return (
-    <Panel title={`Unidades del desarrollo (${units.length}/${dev.estimatedUnits})`}>
+    <Panel
+      title={`Unidades del desarrollo (${units.length}/${dev.estimatedUnits})`}
+      action={
+        <Button size="sm" onClick={() => setBulkOpen(true)} disabled={!canSubdivide}>
+          <Plus />Generar unidades
+        </Button>
+      }
+    >
+      {!canSubdivide && (
+        <div className="mb-3 rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-amber-800">
+          Subdivisión disponible desde estado PERMISOS en adelante.
+        </div>
+      )}
+
       {units.length === 0 ? (
-        <EmptyTab msg="Aún no se han subdividido unidades. Próxima iteración: botón 'Subdividir' para generar deptos/casas hijas." />
+        <EmptyTab msg="Sin unidades. Usá 'Generar unidades' para crear deptos/casas hijas en bulk." />
       ) : (
         <ul className="divide-y divide-slate-100">
           {units.map((u) => (
@@ -823,7 +868,112 @@ function UnitsTab({ dev }: { dev: { units?: Array<{ id: string; code: string; ty
           ))}
         </ul>
       )}
+
+      <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Generar unidades en bulk</DialogTitle>
+            <DialogDescription>
+              Crea N propiedades hijas con códigos secuenciales. Cada una queda DISPONIBLE y vinculada al desarrollo.
+            </DialogDescription>
+          </DialogHeader>
+          <BulkFormCmp
+            existingCount={units.length}
+            estimatedTotal={dev.estimatedUnits}
+            onSubmit={(d) => bulkMut.mutate(d)}
+            isLoading={bulkMut.isPending}
+            onCancel={() => setBulkOpen(false)}
+          />
+        </DialogContent>
+      </Dialog>
     </Panel>
+  );
+}
+
+function BulkFormCmp({
+  existingCount, estimatedTotal, onSubmit, isLoading, onCancel,
+}: {
+  existingCount: number;
+  estimatedTotal: number;
+  onSubmit: (d: BulkForm) => void;
+  isLoading: boolean;
+  onCancel: () => void;
+}) {
+  const remaining = Math.max(0, estimatedTotal - existingCount);
+  const form = useForm<BulkForm>({
+    resolver: zodResolver(bulkSchema),
+    defaultValues: {
+      count: Math.min(remaining || estimatedTotal, 12),
+      codePrefix: "U",
+      type: "DEPTO",
+      m2: 80,
+      startNumber: existingCount + 1,
+    },
+  });
+
+  const preview = React.useMemo(() => {
+    const c = form.watch("count");
+    const prefix = form.watch("codePrefix");
+    const start = form.watch("startNumber");
+    if (!c || c < 1) return [];
+    return Array.from({ length: Math.min(c, 5) }, (_, i) =>
+      `${prefix}${String(start + i).padStart(3, "0")}`,
+    );
+  }, [form]);
+
+  return (
+    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
+      <div className="rounded-md border border-slate-200 bg-slate-50/40 px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-slate-600">
+        Estimado del desarrollo: <strong>{estimatedTotal}</strong> · existentes: <strong>{existingCount}</strong> · faltan: <strong>{remaining}</strong>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <Label>Cantidad</Label>
+          <Input type="number" min={1} max={200} {...form.register("count")} />
+          {form.formState.errors.count && <p className="mt-1 text-xs text-destructive">{form.formState.errors.count.message}</p>}
+        </div>
+        <div>
+          <Label>Prefijo</Label>
+          <Input placeholder="A / U" {...form.register("codePrefix")} />
+          {form.formState.errors.codePrefix && <p className="mt-1 text-xs text-destructive">{form.formState.errors.codePrefix.message}</p>}
+        </div>
+        <div>
+          <Label>N° inicial</Label>
+          <Input type="number" min={1} {...form.register("startNumber")} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>Tipo</Label>
+          <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" {...form.register("type")}>
+            <option value="DEPTO">DEPTO</option>
+            <option value="CASA">CASA</option>
+            <option value="DUPLEX">DUPLEX</option>
+            <option value="LOTE">LOTE</option>
+          </select>
+        </div>
+        <div>
+          <Label>m² por unidad</Label>
+          <Input type="number" step="0.01" {...form.register("m2")} />
+          {form.formState.errors.m2 && <p className="mt-1 text-xs text-destructive">{form.formState.errors.m2.message}</p>}
+        </div>
+      </div>
+      <div className="rounded-md border border-dashed border-slate-300 bg-slate-50/40 p-3">
+        <div className="font-mono text-[10px] font-bold uppercase tracking-widest text-slate-500">Vista previa códigos</div>
+        <div className="mt-1 flex flex-wrap gap-1.5 font-mono text-xs">
+          {preview.map((c) => (
+            <span key={c} className="rounded bg-white px-2 py-0.5 text-slate-700 border border-slate-200">{c}</span>
+          ))}
+          {form.watch("count") > 5 && (
+            <span className="rounded bg-white px-2 py-0.5 text-slate-500 border border-slate-200">+ {form.watch("count") - 5} más…</span>
+          )}
+        </div>
+      </div>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onCancel}>Cancelar</Button>
+        <Button type="submit" disabled={isLoading}>{isLoading && <Loader2 className="animate-spin" />}Generar</Button>
+      </DialogFooter>
+    </form>
   );
 }
 

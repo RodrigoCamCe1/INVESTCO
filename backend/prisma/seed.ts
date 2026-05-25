@@ -551,10 +551,163 @@ async function seedDemoData(userIds: Record<string, string>): Promise<void> {
   console.log('Demo data seeded.');
 }
 
+async function seedDevelopmentsDemo(userIds: Record<string, string>): Promise<void> {
+  const existing = await prisma.development.count();
+  if (existing > 0) {
+    console.log(`Developments ya presentes (${existing}). Skip.`);
+    return;
+  }
+  console.log('Seeding developments demo...');
+
+  // === DEV 1: COMERCIALIZACION (más avanzado) — Torre Piraí ===
+  const dev1 = await prisma.development.create({
+    data: {
+      code: 'DEV-2026-001',
+      name: 'Torre Piraí',
+      zone: 'Equipetrol',
+      address: 'Av. Cristo Redentor, esq. Las Palmas',
+      description: 'Torre residencial 6 plantas. 12 deptos.',
+      acquisitionBudget: 480000,
+      constructionBudget: 2800000,
+      currency: 'BOB',
+      estimatedUnits: 12,
+      startDate: daysAgo(200),
+      estimatedCompletion: daysAhead(60),
+      status: 'COMERCIALIZACION',
+    },
+  });
+  await prisma.acquisitionContract.create({
+    data: {
+      developmentId: dev1.id,
+      sellerName: 'Inmobiliaria del Este SA',
+      sellerCi: '1009988776',
+      sellerPhone: '33445500',
+      totalAmount: 475000,
+      currency: 'BOB',
+      status: 'FIRMADO',
+      signedDate: daysAgo(195),
+      notes: 'Negociación cerrada en oferta',
+    },
+  });
+  await prisma.permit.createMany({
+    data: [
+      { developmentId: dev1.id, type: 'MUNICIPAL', permitNumber: 'M-2025-987', status: 'APROBADO', issuedDate: daysAgo(180), validUntil: daysAhead(900) },
+      { developmentId: dev1.id, type: 'BOMBEROS', permitNumber: 'B-2025-104', status: 'APROBADO', issuedDate: daysAgo(170) },
+      { developmentId: dev1.id, type: 'AMBIENTAL', permitNumber: 'A-2025-051', status: 'APROBADO', issuedDate: daysAgo(175) },
+      { developmentId: dev1.id, type: 'SERVICIOS', status: 'GESTIONANDO' },
+    ],
+  });
+  // Construction master finalizado
+  await prisma.project.create({
+    data: {
+      code: 'PRJ-CM-TPI-2026',
+      kind: 'CONSTRUCTION_MASTER',
+      developmentId: dev1.id,
+      startDate: daysAgo(170),
+      endDate: daysAgo(20),
+      currentStage: 'ENTREGA',
+      status: 'FINALIZADO',
+      projectManagerId: userIds.proyecto,
+      qualityManagerId: userIds.calidad,
+      budgetManagerId: userIds.gerente,
+    },
+  });
+  // 12 unidades subdivididas
+  await prisma.property.createMany({
+    data: Array.from({ length: 12 }, (_, i) => ({
+      code: `DEV-2026-001-A${String(i + 1).padStart(3, '0')}`,
+      type: 'DEPTO' as const,
+      address: `${dev1.address} · Depto A${String(i + 1).padStart(3, '0')}`,
+      zone: dev1.zone,
+      m2: 75 + (i % 3) * 10,
+      developmentId: dev1.id,
+      status: i < 3 ? ('VENDIDO' as const) : i < 5 ? ('RESERVADO' as const) : ('DISPONIBLE' as const),
+    })),
+  });
+
+  // === DEV 2: EN_CONSTRUCCION — Las Palmeras ===
+  const dev2 = await prisma.development.create({
+    data: {
+      code: 'DEV-2026-002',
+      name: 'Condominio Las Palmeras',
+      zone: 'Urubó',
+      address: 'Km 8 Carretera al Urubó',
+      description: 'Condominio horizontal de 8 casas.',
+      acquisitionBudget: 620000,
+      constructionBudget: 2200000,
+      currency: 'BOB',
+      estimatedUnits: 8,
+      startDate: daysAgo(80),
+      estimatedCompletion: daysAhead(220),
+      status: 'EN_CONSTRUCCION',
+    },
+  });
+  await prisma.acquisitionContract.create({
+    data: {
+      developmentId: dev2.id,
+      sellerName: 'Hacienda San Pablo',
+      totalAmount: 615000,
+      status: 'FIRMADO',
+      signedDate: daysAgo(75),
+    },
+  });
+  await prisma.permit.createMany({
+    data: [
+      { developmentId: dev2.id, type: 'MUNICIPAL', permitNumber: 'M-2026-112', status: 'APROBADO', issuedDate: daysAgo(60) },
+      { developmentId: dev2.id, type: 'BOMBEROS', status: 'GESTIONANDO' },
+      { developmentId: dev2.id, type: 'CATASTRAL', permitNumber: 'C-2026-088', status: 'APROBADO', issuedDate: daysAgo(55) },
+    ],
+  });
+  await prisma.project.create({
+    data: {
+      code: 'PRJ-CM-PALM-2026',
+      kind: 'CONSTRUCTION_MASTER',
+      developmentId: dev2.id,
+      startDate: daysAgo(55),
+      currentStage: 'OBRA_BRUTA',
+      status: 'EN_EJECUCION',
+      projectManagerId: userIds.proyecto,
+      qualityManagerId: userIds.calidad,
+    },
+  });
+  await prisma.property.createMany({
+    data: Array.from({ length: 8 }, (_, i) => ({
+      code: `DEV-2026-002-C${String(i + 1).padStart(3, '0')}`,
+      type: 'CASA' as const,
+      address: `${dev2.address} · Casa ${i + 1}`,
+      zone: dev2.zone,
+      m2: 180 + (i % 2) * 20,
+      developmentId: dev2.id,
+      status: 'EN_CONSTRUCCION' as const,
+    })),
+  });
+
+  // === DEV 3: PLANIFICACION (recién arrancando) — Vista Verde ===
+  await prisma.development.create({
+    data: {
+      code: 'DEV-2026-003',
+      name: 'Edificio Vista Verde',
+      zone: 'Sur',
+      address: 'Av. Roca y Coronado',
+      description: 'Edificio mixto: 6 dúplex + locales comerciales en planta baja.',
+      acquisitionBudget: 350000,
+      constructionBudget: 1850000,
+      currency: 'BOB',
+      estimatedUnits: 6,
+      startDate: daysAhead(15),
+      estimatedCompletion: daysAhead(540),
+      status: 'PLANIFICACION',
+    },
+  });
+
+  console.log('  3 desarrollos demo creados (COMERCIALIZACION, EN_CONSTRUCCION, PLANIFICACION)');
+}
+
 async function main(): Promise<void> {
   const roleIds = await seedRoles();
   const userIds = await seedUsers(roleIds);
   await seedDemoData(userIds);
+  await seedDevelopmentsDemo(userIds);
   console.log('\nLogin admin: admin@investco.local / Admin123!');
   console.log('Login demo:  gerente@investco.local / Admin123!  (otros: ventas/proyecto/calidad/compras)');
 }

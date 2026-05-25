@@ -17,6 +17,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { DevelopmentsService } from './developments.service';
 import { CreateDevelopmentDto } from './dto/create-development.dto';
+import { BulkGenerateUnitsDto, SubdivideDto } from './dto/subdivide.dto';
 import { UpdateDevelopmentDto } from './dto/update-development.dto';
 
 @ApiTags('developments')
@@ -47,6 +48,24 @@ export class DevelopmentsController {
   @Roles('ADMIN', 'GERENTE')
   update(@Param('id', new ParseUUIDPipe()) id: string, @Body() dto: UpdateDevelopmentDto) {
     return this.devs.update(id, dto);
+  }
+
+  @Post(':id/subdivide')
+  @Roles('ADMIN', 'GERENTE', 'ARQUITECTO')
+  subdivide(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: SubdivideDto,
+  ) {
+    return this.devs.subdivide(id, dto);
+  }
+
+  @Post(':id/bulk-generate-units')
+  @Roles('ADMIN', 'GERENTE', 'ARQUITECTO')
+  bulkGenerate(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: BulkGenerateUnitsDto,
+  ) {
+    return this.devs.bulkGenerateUnits(id, dto);
   }
 
   @Delete(':id')

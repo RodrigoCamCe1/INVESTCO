@@ -13,6 +13,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
+  Layers3,
 } from "lucide-react";
 import {
   BarChart,
@@ -30,6 +31,7 @@ import {
   Legend,
 } from "recharts";
 import { dashboardApi } from "@/lib/dashboard-api";
+import { developmentsApi } from "@/lib/api/services";
 import type {
   ProjectListItem,
   PropertyListItem,
@@ -38,7 +40,31 @@ import type {
   ReservationListItem,
   PaymentListItem,
 } from "@/lib/dashboard-api";
+import type { Development, DevelopmentStatus } from "@/lib/api/types";
 import { useAuthSession } from "@/providers/auth-session-provider";
+
+const DEV_STATUS_LABEL: Record<DevelopmentStatus, string> = {
+  PLANIFICACION: "Planificación",
+  ADQUISICION: "Adquisición",
+  PERMISOS: "Permisos",
+  EN_CONSTRUCCION: "En construcción",
+  COMERCIALIZACION: "Comercialización",
+  COMPLETADO: "Completado",
+  CANCELADO: "Cancelado",
+};
+const DEV_STATUS_COLOR: Record<DevelopmentStatus, string> = {
+  PLANIFICACION: "bg-slate-100 text-slate-700",
+  ADQUISICION: "bg-blue-100 text-blue-700",
+  PERMISOS: "bg-yellow-100 text-yellow-800",
+  EN_CONSTRUCCION: "bg-amber-100 text-amber-800",
+  COMERCIALIZACION: "bg-indigo-100 text-indigo-700",
+  COMPLETADO: "bg-emerald-100 text-emerald-700",
+  CANCELADO: "bg-red-100 text-red-700",
+};
+const DEV_STATUS_PROGRESS: Record<DevelopmentStatus, number> = {
+  PLANIFICACION: 10, ADQUISICION: 25, PERMISOS: 45,
+  EN_CONSTRUCCION: 70, COMERCIALIZACION: 90, COMPLETADO: 100, CANCELADO: 0,
+};
 
 const PROPERTY_STATUS_COLOR: Record<string, string> = {
   DISPONIBLE: "#10b981",
@@ -95,6 +121,7 @@ export default function DashboardPage() {
       { queryKey: ["dash", "reservations"], queryFn: dashboardApi.reservations },
       { queryKey: ["dash", "projects"], queryFn: dashboardApi.projects },
       { queryKey: ["dash", "payments"], queryFn: dashboardApi.payments },
+      { queryKey: ["developments"], queryFn: () => developmentsApi.list() },
     ],
   });
 
@@ -105,6 +132,7 @@ export default function DashboardPage() {
     reservationsQ,
     projectsQ,
     paymentsQ,
+    developmentsQ,
   ] = results;
 
   const properties: PropertyListItem[] = propertiesQ.data ?? [];
@@ -113,6 +141,15 @@ export default function DashboardPage() {
   const reservations: ReservationListItem[] = reservationsQ.data ?? [];
   const projects: ProjectListItem[] = projectsQ.data ?? [];
   const payments: PaymentListItem[] = paymentsQ.data ?? [];
+  const developments: Development[] = (developmentsQ.data ?? []) as Development[];
+
+  const activeDevelopments = developments.filter(
+    (d) => d.status !== "COMPLETADO" && d.status !== "CANCELADO",
+  );
+  const totalDevBudget = developments.reduce(
+    (acc, d) => acc + Number(d.acquisitionBudget) + Number(d.constructionBudget),
+    0,
+  );
 
   const isLoading = results.some((r) => r.isLoading);
   const error = results.find((r) => r.error)?.error;
@@ -262,14 +299,22 @@ export default function DashboardPage() {
         </header>
 
         {/* ============ KPI ROW ============ */}
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+          <KpiCard
+            icon={Layers3}
+            accent="rose"
+            label="Desarrollos activos"
+            value={String(activeDevelopments.length)}
+            sub={`${developments.length} totales · ${formatCurrency(totalDevBudget)}`}
+            href="/desarrollos"
+          />
           <KpiCard
             icon={HardHat}
             accent="indigo"
             label="Proyectos activos"
             value={String(activeProjects.length)}
             sub={`${projects.length} totales`}
-            href="/proyectos/torre-pirai"
+            href="/proyectos"
           />
           <KpiCard
             icon={Building2}
@@ -300,6 +345,60 @@ export default function DashboardPage() {
             href="/contratos"
           />
         </div>
+
+        {/* ============ DESARROLLOS EN CURSO ============ */}
+        {activeDevelopments.length > 0 && (
+          <Panel
+            title="Desarrollos en curso"
+            subtitle={`${activeDevelopments.length} activos`}
+            tag="§ 00"
+            action={
+              <Link
+                href="/desarrollos"
+                className="inline-flex items-center gap-1 font-mono text-[10px] font-bold uppercase tracking-widest text-amber-700 hover:text-amber-900"
+              >
+                Ver todos
+                <ArrowUpRight className="h-3 w-3" />
+              </Link>
+            }
+          >
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {activeDevelopments.slice(0, 6).map((d) => {
+                const pct = DEV_STATUS_PROGRESS[d.status];
+                return (
+                  <Link
+                    key={d.id}
+                    href={`/desarrollos/${d.id}`}
+                    className="group rounded-lg border border-slate-200 bg-slate-50/40 p-4 transition-all hover:border-amber-300 hover:bg-white hover:shadow-sm"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="min-w-0">
+                        <p className="font-mono text-[9px] font-bold uppercase tracking-widest text-amber-700">{d.code}</p>
+                        <h3 className="mt-0.5 truncate text-sm font-black text-slate-900">{d.name}</h3>
+                        <p className="mt-0.5 truncate font-mono text-[10px] uppercase tracking-widest text-slate-500">{d.zone}</p>
+                      </div>
+                      <span className={`whitespace-nowrap rounded-full px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest ${DEV_STATUS_COLOR[d.status]}`}>
+                        {DEV_STATUS_LABEL[d.status]}
+                      </span>
+                    </div>
+                    <div className="mt-3">
+                      <div className="mb-1 flex items-center justify-between font-mono text-[10px] uppercase tracking-widest">
+                        <span className="text-slate-500">Avance ciclo</span>
+                        <span className="font-black text-slate-900">{pct}%</span>
+                      </div>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+                        <div
+                          className="h-1.5 rounded-full bg-gradient-to-r from-indigo-500 to-amber-500 transition-all"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          </Panel>
+        )}
 
         {/* ============ CHARTS ROW ============ */}
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -666,7 +765,7 @@ function KpiCard({
   href,
 }: {
   icon: React.ElementType;
-  accent: "indigo" | "amber" | "emerald" | "violet";
+  accent: "indigo" | "amber" | "emerald" | "violet" | "rose";
   label: string;
   value: string;
   sub: string;
@@ -677,6 +776,7 @@ function KpiCard({
     amber: { bg: "bg-amber-50", text: "text-amber-600", ring: "ring-amber-100" },
     emerald: { bg: "bg-emerald-50", text: "text-emerald-600", ring: "ring-emerald-100" },
     violet: { bg: "bg-violet-50", text: "text-violet-600", ring: "ring-violet-100" },
+    rose: { bg: "bg-rose-50", text: "text-rose-600", ring: "ring-rose-100" },
   };
   const a = accentMap[accent];
   const Wrapper = href ? Link : "div";

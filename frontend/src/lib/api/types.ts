@@ -328,3 +328,22 @@ export interface CreateConstructionMasterInput {
   qualityManagerId?: string;
   budgetManagerId?: string;
 }
+
+export interface SubdivideUnitInput {
+  code: string;
+  type: "LOTE" | "CASA" | "DEPTO" | "DUPLEX";
+  address?: string;
+  m2: number;
+}
+
+export interface SubdivideInput {
+  units: SubdivideUnitInput[];
+}
+
+export interface BulkGenerateUnitsInput {
+  count: number;
+  codePrefix: string;
+  type: "LOTE" | "CASA" | "DEPTO" | "DUPLEX";
+  m2: number;
+  startNumber?: number;
+}
