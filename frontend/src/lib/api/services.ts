@@ -1,17 +1,27 @@
 import { api } from "@/lib/api-client";
 import type {
+  AcquisitionContract,
   Client,
   Contract,
+  CreateAcquisitionInput,
   CreateClientInput,
+  CreateConstructionMasterInput,
   CreateContractInput,
+  CreateDevelopmentInput,
+  CreatePermitInput,
   CreateProjectInput,
   CreatePropertyInput,
   CreateReservationInput,
+  Development,
+  DevelopmentStatus,
   Paginated,
+  Permit,
   Project,
   Property,
   Reservation,
   UpdateClientInput,
+  UpdateDevelopmentInput,
+  UpdatePermitInput,
   UpdatePropertyInput,
   UserListItem,
 } from "./types";
@@ -123,6 +133,95 @@ export const usersApi = {
     const { data } = await api.get<UserListItem[]>("/users", {
       params: role ? { role } : {},
     });
+    return data;
+  },
+};
+
+export const developmentsApi = {
+  list: async (params?: { status?: DevelopmentStatus }): Promise<Development[]> => {
+    const { data } = await api.get<Development[]>("/developments", { params });
+    return data;
+  },
+  get: async (id: string): Promise<Development> => {
+    const { data } = await api.get<Development>(`/developments/${id}`);
+    return data;
+  },
+  create: async (dto: CreateDevelopmentInput): Promise<Development> => {
+    const { data } = await api.post<Development>("/developments", dto);
+    return data;
+  },
+  update: async (id: string, dto: UpdateDevelopmentInput): Promise<Development> => {
+    const { data } = await api.patch<Development>(`/developments/${id}`, dto);
+    return data;
+  },
+  remove: async (id: string): Promise<void> => {
+    await api.delete(`/developments/${id}`);
+  },
+};
+
+export const acquisitionsApi = {
+  list: async (developmentId: string): Promise<AcquisitionContract[]> => {
+    const { data } = await api.get<AcquisitionContract[]>(
+      `/developments/${developmentId}/acquisitions`,
+    );
+    return data;
+  },
+  create: async (
+    developmentId: string,
+    dto: CreateAcquisitionInput,
+  ): Promise<AcquisitionContract> => {
+    const { data } = await api.post<AcquisitionContract>(
+      `/developments/${developmentId}/acquisitions`,
+      dto,
+    );
+    return data;
+  },
+  sign: async (id: string): Promise<AcquisitionContract> => {
+    const { data } = await api.patch<AcquisitionContract>(`/acquisitions/${id}/sign`);
+    return data;
+  },
+  cancel: async (id: string): Promise<AcquisitionContract> => {
+    const { data } = await api.patch<AcquisitionContract>(`/acquisitions/${id}/cancel`);
+    return data;
+  },
+};
+
+export const permitsApi = {
+  list: async (developmentId: string): Promise<Permit[]> => {
+    const { data } = await api.get<Permit[]>(`/developments/${developmentId}/permits`);
+    return data;
+  },
+  create: async (developmentId: string, dto: CreatePermitInput): Promise<Permit> => {
+    const { data } = await api.post<Permit>(
+      `/developments/${developmentId}/permits`,
+      dto,
+    );
+    return data;
+  },
+  update: async (id: string, dto: UpdatePermitInput): Promise<Permit> => {
+    const { data } = await api.patch<Permit>(`/permits/${id}`, dto);
+    return data;
+  },
+  remove: async (id: string): Promise<void> => {
+    await api.delete(`/permits/${id}`);
+  },
+};
+
+export const constructionApi = {
+  create: async (
+    developmentId: string,
+    dto: CreateConstructionMasterInput,
+  ): Promise<Project> => {
+    const { data } = await api.post<Project>(
+      `/projects/construction-master/${developmentId}`,
+      dto,
+    );
+    return data;
+  },
+  finalize: async (projectId: string): Promise<Project> => {
+    const { data } = await api.patch<Project>(
+      `/projects/${projectId}/finalize-construction`,
+    );
     return data;
   },
 };

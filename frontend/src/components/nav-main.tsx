@@ -18,6 +18,7 @@ import {
   UserCog,
   ClipboardList,
   Smartphone,
+  Layers3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PERMISSIONS } from "@/constants/permissions";
@@ -36,6 +37,12 @@ const NAV_ITEMS: NavItem[] = [
     href: "/dashboard",
     icon: LayoutDashboard,
     permission: null,
+  },
+  {
+    label: "Desarrollos",
+    href: "/desarrollos",
+    icon: Layers3,
+    permission: PERMISSIONS.PROJECTS_READ,
   },
   {
     label: "Inmuebles",

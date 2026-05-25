@@ -3,12 +3,14 @@ import {
   ContractStatus,
   Prisma,
   Project,
+  ProjectKind,
   ProjectStage,
   ProjectStatus,
   PropertyStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { assertPropertyTransition } from '../properties/property-status.machine';
+import { CreateConstructionMasterDto } from './dto/create-construction-master.dto';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { ListProjectsQueryDto } from './dto/list-projects.query';
 import { UpdateProjectDto } from './dto/update-project.dto';
@@ -57,6 +59,7 @@ export class ProjectsService {
       return tx.project.create({
         data: {
           code: dto.code,
+          kind: 'UNIT_SALE',
           propertyId: contract.propertyId,
           contractId: contract.id,
           startDate: dto.startDate,
@@ -65,6 +68,113 @@ export class ProjectsService {
           budgetManagerId: dto.budgetManagerId,
         },
       });
+    });
+  }
+
+  async createConstructionMaster(developmentId: string, dto: CreateConstructionMasterDto): Promise<Project> {
+    return this.prisma.$transaction(async (tx) => {
+      const dev = await tx.development.findFirst({
+        where: { id: developmentId, deletedAt: null },
+        include: {
+          acquisitionContracts: true,
+          permits: true,
+          projects: { where: { kind: 'CONSTRUCTION_MASTER', deletedAt: null } },
+        },
+      });
+      if (!dev) throw new NotFoundException(`Desarrollo no encontrado: ${developmentId}`);
+
+      if (dev.projects.length > 0) {
+        throw new ConflictException(
+          `Desarrollo ya tiene proyecto de construcción: ${dev.projects[0].id}`,
+        );
+      }
+
+      const hasSignedAcquisition = dev.acquisitionContracts.some((a) => a.status === 'FIRMADO');
+      if (!hasSignedAcquisition) {
+        throw new BadRequestException(
+          'Requiere al menos una adquisición de terreno FIRMADA antes de iniciar construcción',
+        );
+      }
+
+      const hasApprovedMunicipal = dev.permits.some(
+        (p) => p.status === 'APROBADO' && p.type === 'MUNICIPAL',
+      );
+      if (!hasApprovedMunicipal) {
+        throw new BadRequestException(
+          'Requiere permiso MUNICIPAL APROBADO antes de iniciar construcción',
+        );
+      }
+
+      if (dev.status !== 'PERMISOS' && dev.status !== 'EN_CONSTRUCCION') {
+        throw new BadRequestException(
+          `Desarrollo en estado ${dev.status}. Avanzá a PERMISOS antes de crear proyecto de construcción.`,
+        );
+      }
+
+      const codeDup = await tx.project.findUnique({ where: { code: dto.code } });
+      if (codeDup) throw new ConflictException(`Código de proyecto ya en uso: ${dto.code}`);
+
+      await this.assertUserHasRole(tx, dto.projectManagerId, 'ENCARG_PROYECTO');
+      if (dto.qualityManagerId) await this.assertUserHasRole(tx, dto.qualityManagerId, 'ENCARG_CALIDAD');
+      if (dto.budgetManagerId) await this.assertUserHasRole(tx, dto.budgetManagerId, 'ENCARG_PRESUPUESTO');
+
+      const created = await tx.project.create({
+        data: {
+          code: dto.code,
+          kind: 'CONSTRUCTION_MASTER',
+          developmentId: dev.id,
+          propertyId: null,
+          contractId: null,
+          startDate: dto.startDate,
+          status: 'EN_EJECUCION',
+          projectManagerId: dto.projectManagerId,
+          qualityManagerId: dto.qualityManagerId,
+          budgetManagerId: dto.budgetManagerId,
+        },
+      });
+
+      if (dev.status !== 'EN_CONSTRUCCION') {
+        await tx.development.update({
+          where: { id: dev.id },
+          data: { status: 'EN_CONSTRUCCION' },
+        });
+      }
+
+      return created;
+    });
+  }
+
+  async finalizeConstructionMaster(projectId: string): Promise<Project> {
+    return this.prisma.$transaction(async (tx) => {
+      const p = await tx.project.findFirst({
+        where: { id: projectId, deletedAt: null },
+        include: { development: true },
+      });
+      if (!p) throw new NotFoundException(`Proyecto no encontrado: ${projectId}`);
+      if (p.kind !== 'CONSTRUCTION_MASTER') {
+        throw new BadRequestException('Solo proyectos CONSTRUCTION_MASTER usan este endpoint');
+      }
+      if (p.status === 'FINALIZADO') {
+        throw new BadRequestException('Proyecto ya finalizado');
+      }
+
+      const updated = await tx.project.update({
+        where: { id: projectId },
+        data: {
+          status: 'FINALIZADO',
+          currentStage: 'ENTREGA',
+          endDate: p.endDate ?? new Date(),
+        },
+      });
+
+      if (p.development && p.development.status === 'EN_CONSTRUCCION') {
+        await tx.development.update({
+          where: { id: p.development.id },
+          data: { status: 'COMERCIALIZACION' },
+        });
+      }
+
+      return updated;
     });
   }
 
@@ -83,7 +193,7 @@ export class ProjectsService {
         skip: (page - 1) * limit,
         take: limit,
         orderBy: { startDate: 'desc' },
-        include: { property: true, contract: true },
+        include: { property: true, contract: true, development: true },
       }),
       this.prisma.project.count({ where }),
     ]);
@@ -97,6 +207,7 @@ export class ProjectsService {
       include: {
         property: true,
         contract: true,
+        development: true,
         activities: { orderBy: { plannedStart: 'asc' } },
         preliminaries: true,
       },

@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patc
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Project } from '@prisma/client';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { CreateConstructionMasterDto } from './dto/create-construction-master.dto';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { ListProjectsQueryDto } from './dto/list-projects.query';
 import { UpdateProjectDto } from './dto/update-project.dto';
@@ -41,5 +42,29 @@ export class ProjectsController {
     @Body() dto: UpdateProjectDto,
   ): Promise<Project> {
     return this.svc.update(id, dto);
+  }
+
+  @Post('construction-master/:developmentId')
+  @Roles('ADMIN', 'GERENTE', 'ENCARG_PROYECTO')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary:
+      'Crear proyecto de construcción del edificio (Development → EN_CONSTRUCCION). Requiere adquisición firmada + permiso municipal aprobado.',
+  })
+  createConstructionMaster(
+    @Param('developmentId', new ParseUUIDPipe()) developmentId: string,
+    @Body() dto: CreateConstructionMasterDto,
+  ): Promise<Project> {
+    return this.svc.createConstructionMaster(developmentId, dto);
+  }
+
+  @Patch(':id/finalize-construction')
+  @Roles('ADMIN', 'GERENTE', 'ENCARG_PROYECTO')
+  @ApiOperation({
+    summary:
+      'Finalizar proyecto de construcción del edificio (Development → COMERCIALIZACION). Solo kind=CONSTRUCTION_MASTER.',
+  })
+  finalizeConstructionMaster(@Param('id', new ParseUUIDPipe()) id: string): Promise<Project> {
+    return this.svc.finalizeConstructionMaster(id);
   }
 }
