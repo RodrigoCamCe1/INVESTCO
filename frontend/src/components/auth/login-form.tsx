@@ -18,8 +18,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuthSession } from "@/providers/auth-session-provider";
-import type { MockRoleCode } from "@/constants/permissions";
-import { MOCK_PASSWORD } from "@/lib/mock-auth";
 
 const loginSchema = z.object({
   email: z
@@ -29,75 +27,40 @@ const loginSchema = z.object({
   password: z
     .string()
     .min(1, "La contraseña es obligatoria")
-    .min(12, "La contraseña debe tener al menos 12 caracteres"),
+    .min(6, "La contraseña debe tener al menos 6 caracteres"),
 });
 
 type LoginFormValues = z.infer<typeof loginSchema>;
 
-const QUICK_ROLES: Array<{ role: MockRoleCode; label: string; description: string }> =
-  [
-    {
-      role: "ADMIN",
-      label: "Ingresar como Administrador",
-      description: "Rol ADMIN — acceso total",
-    },
-    {
-      role: "VENDEDOR",
-      label: "Ingresar como Vendedor",
-      description: "Comercial y reservas",
-    },
-    {
-      role: "ENCARG_PROYECTO",
-      label: "Ingresar como Encargado de Proyecto",
-      description: "Gestión de obra",
-    },
-  ];
-
 export function LoginForm() {
   const router = useRouter();
-  const { login, loginAsRole } = useAuthSession();
+  const { login } = useAuthSession();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const {
     register,
     handleSubmit,
-    setValue,
     formState: { errors },
   } = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: { email: "", password: "" },
   });
 
-  const completeLogin = () => {
-    toast.success("Sesión iniciada con éxito");
-    router.push("/dashboard");
-  };
-
   const onSubmit = async (data: LoginFormValues) => {
     setIsSubmitting(true);
     try {
-      const ok = login(data.email, data.password);
-      if (!ok) {
-        toast.error("Credenciales incorrectas", {
-          description:
-            "Verifique el correo y la contraseña. En modo demo use los usuarios de prueba.",
+      const result = await login(data.email, data.password);
+      if (!result.ok) {
+        toast.error("No se pudo iniciar sesión", {
+          description: result.error ?? "Verifique el correo y la contraseña.",
         });
         return;
       }
-      completeLogin();
+      toast.success("Sesión iniciada con éxito");
+      router.push("/dashboard");
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const handleQuickLogin = (role: MockRoleCode) => {
-    loginAsRole(role);
-    completeLogin();
-  };
-
-  const fillDemoCredentials = (email: string) => {
-    setValue("email", email, { shouldValidate: true });
-    setValue("password", MOCK_PASSWORD, { shouldValidate: true });
   };
 
   return (
@@ -114,7 +77,7 @@ export function LoginForm() {
             Sistema de Control de Obra
           </CardTitle>
           <CardDescription>
-            Caso de Uso #30 — Autenticación (prototipo con mocks)
+            Ingrese con sus credenciales de Investco ERP
           </CardDescription>
         </div>
       </CardHeader>
@@ -129,7 +92,7 @@ export function LoginForm() {
                 id="email"
                 type="email"
                 autoComplete="email"
-                placeholder="admin@investco.com"
+                placeholder="admin@investco.local"
                 className="pl-10"
                 {...register("email")}
               />
@@ -147,7 +110,7 @@ export function LoginForm() {
                 id="password"
                 type="password"
                 autoComplete="current-password"
-                placeholder="Mínimo 12 caracteres"
+                placeholder="Su contraseña"
                 className="pl-10"
                 {...register("password")}
               />
@@ -170,52 +133,6 @@ export function LoginForm() {
             )}
           </Button>
         </form>
-
-        {process.env.NEXT_PUBLIC_USE_MOCKS === "true" && (
-          <div className="space-y-3 border-t pt-6">
-            <div>
-              <h2 className="text-sm font-semibold text-slate-900">
-                Ingreso Rápido
-              </h2>
-              <p className="text-xs text-muted-foreground">
-                Simula roles del sistema sin escribir credenciales
-              </p>
-            </div>
-            <div className="grid gap-2">
-              {QUICK_ROLES.map((item) => (
-                <Button
-                  key={item.role}
-                  type="button"
-                  variant="outline"
-                  className="h-auto flex-col items-start gap-0.5 py-3 text-left"
-                  onClick={() => handleQuickLogin(item.role)}
-                >
-                  <span className="font-medium">{item.label}</span>
-                  <span className="text-xs font-normal text-muted-foreground">
-                    {item.description}
-                  </span>
-                </Button>
-              ))}
-            </div>
-            <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
-              <p className="font-medium text-slate-800">Datos de prueba</p>
-              <button
-                type="button"
-                className="mt-1 block text-left hover:text-amber-800"
-                onClick={() => fillDemoCredentials("admin@investco.com")}
-              >
-                Admin: admin@investco.com / {MOCK_PASSWORD}
-              </button>
-              <button
-                type="button"
-                className="mt-1 block text-left hover:text-amber-800"
-                onClick={() => fillDemoCredentials("ventas@investco.com")}
-              >
-                Vendedor: ventas@investco.com / {MOCK_PASSWORD}
-              </button>
-            </div>
-          </div>
-        )}
       </CardContent>
     </Card>
   );

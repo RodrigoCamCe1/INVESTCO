@@ -1,17 +1,15 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import { z } from "zod"
-import {
-  ColumnDef,
-  flexRender,
-  getCoreRowModel,
-  getFilteredRowModel,
-  useReactTable,
-} from "@tanstack/react-table"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
+import * as React from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { toast } from "sonner";
+import { Users, Plus, RefreshCw, Loader2, Pencil, Search } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -19,8 +17,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
+} from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -28,485 +25,312 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table"
-import { toast } from "sonner"
-import {
-  Search,
-  UserPlus,
-  User,
-  Mail,
-  Phone,
-  CreditCard,
-  Building,
-  Calendar,
-  CalendarPlus,
-} from "lucide-react"
+} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { clientsApi } from "@/lib/api/services";
+import { extractApiError } from "@/lib/api-client";
+import type { Client, ClientStatus } from "@/lib/api/types";
 
-import { useCommercialStore, Cliente } from "@/store/commercial-store"
-import { useAuthSession } from "@/providers/auth-session-provider"
-import { PERMISSIONS } from "@/constants/permissions"
+const CLIENT_STATUSES: ClientStatus[] = [
+  "LEAD",
+  "PROSPECTO",
+  "RESERVADO",
+  "FIRMADO",
+  "ENTREGADO",
+  "CERRADO",
+];
 
-// Esquema Zod para validación de Nuevo Cliente
-const clienteSchema = z.object({
-  nombre: z.string().min(3, "El nombre debe tener al menos 3 caracteres"),
-  documento: z.string().min(5, "El documento es requerido"),
-  email: z.string().email("Correo electrónico inválido").or(z.literal("")),
-  telefono: z.string().optional(),
-  interes: z.string().optional(),
-})
+const statusColor: Record<ClientStatus, string> = {
+  LEAD: "bg-slate-100 text-slate-700",
+  PROSPECTO: "bg-blue-100 text-blue-700",
+  RESERVADO: "bg-amber-100 text-amber-700",
+  FIRMADO: "bg-indigo-100 text-indigo-700",
+  ENTREGADO: "bg-emerald-100 text-emerald-700",
+  CERRADO: "bg-zinc-100 text-zinc-600",
+};
+
+const createSchema = z.object({
+  ci: z.string().min(5, "CI mínimo 5 caracteres").regex(/^[0-9A-Za-z\-]+$/, "Solo letras, números o guión"),
+  firstName: z.string().min(2),
+  lastName: z.string().min(2),
+  phone: z.string().min(7, "Teléfono mínimo 7"),
+  email: z.string().email("Email inválido").optional().or(z.literal("")),
+  source: z.string().optional(),
+});
+type CreateForm = z.infer<typeof createSchema>;
+
+const updateSchema = z.object({
+  firstName: z.string().min(2),
+  lastName: z.string().min(2),
+  phone: z.string().min(7),
+  email: z.string().email().optional().or(z.literal("")),
+  source: z.string().optional(),
+  status: z.enum(CLIENT_STATUSES as [string, ...string[]]),
+});
+type UpdateForm = z.infer<typeof updateSchema>;
 
 export default function ClientesPage() {
-  const { session } = useAuthSession()
-  const hasWritePermission = session?.permissions.includes(PERMISSIONS.CLIENTS_WRITE)
+  const qc = useQueryClient();
+  const [filter, setFilter] = React.useState<ClientStatus | "ALL">("ALL");
+  const [q, setQ] = React.useState("");
+  const [createOpen, setCreateOpen] = React.useState(false);
+  const [editing, setEditing] = React.useState<Client | null>(null);
 
-  const { clientes, addCliente, updateClienteStatus } = useCommercialStore()
-  const [globalFilter, setGlobalFilter] = React.useState("")
-  const [open, setOpen] = React.useState(false)
+  const clientsQ = useQuery({ queryKey: ["clients"], queryFn: () => clientsApi.list() });
 
-  // Estado del Formulario
-  const [nombreForm, setNombreForm] = React.useState("")
-  const [documentoForm, setDocumentoForm] = React.useState("")
-  const [emailForm, setEmailForm] = React.useState("")
-  const [telefonoForm, setTelefonoForm] = React.useState("")
-  const [interesForm, setInteresForm] = React.useState("")
-  const [formErrors, setFormErrors] = React.useState<Record<string, string>>({})
-  const [isSubmitting, setIsSubmitting] = React.useState(false)
-
-  // Estado Modal Agenda
-  const [agendaOpen, setAgendaOpen] = React.useState(false)
-  const [clienteAgenda, setClienteAgenda] = React.useState<Cliente | null>(null)
-  const [fechaAgenda, setFechaAgenda] = React.useState("")
-  const [notasAgenda, setNotasAgenda] = React.useState("")
-  const [agendaError, setAgendaError] = React.useState("")
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    setFormErrors({})
-
-    const data = {
-      nombre: nombreForm,
-      documento: documentoForm,
-      email: emailForm,
-      telefono: telefonoForm,
-      interes: interesForm,
-    }
-
-    const parsed = clienteSchema.safeParse(data)
-
-    if (!parsed.success) {
-      const fieldErrors: Record<string, string> = {}
-      parsed.error.errors.forEach((err) => {
-        if (err.path[0]) {
-          fieldErrors[err.path[0].toString()] = err.message
-        }
-      })
-      setFormErrors(fieldErrors)
-      return
-    }
-
-    setIsSubmitting(true)
-
-    // Simular carga de red
-    setTimeout(() => {
-      addCliente({
-        ...parsed.data,
-        email: parsed.data.email || "sin-correo@investco.com",
-        telefono: parsed.data.telefono || "S/T",
-        interes: parsed.data.interes || "General",
-        fuente: "Web",
-      })
-
-      toast.success("Cliente registrado con éxito en estado LEAD")
-      
-      setNombreForm("")
-      setDocumentoForm("")
-      setEmailForm("")
-      setTelefonoForm("")
-      setInteresForm("")
-      setOpen(false)
-      setIsSubmitting(false)
-    }, 1000)
-  }
-
-  const handleOpenAgenda = (cliente: Cliente) => {
-    setClienteAgenda(cliente)
-    setFechaAgenda("")
-    setNotasAgenda("")
-    setAgendaError("")
-    setAgendaOpen(true)
-  }
-
-  const submitAgenda = (e: React.FormEvent) => {
-    e.preventDefault()
-    setAgendaError("")
-
-    if (!fechaAgenda) {
-      setAgendaError("La fecha es requerida.")
-      return
-    }
-
-    const inputDate = new Date(fechaAgenda)
-    const today = new Date()
-    today.setHours(0, 0, 0, 0) // Compare solo fechas sin horas
-
-    if (inputDate < today) {
-      setAgendaError("La fecha no puede ser en el pasado.")
-      return
-    }
-
-    if (!clienteAgenda) return
-
-    updateClienteStatus(clienteAgenda.id, "PROSPECTO")
-    toast.success("Reunión agendada", { description: `El cliente ${clienteAgenda.nombre} ahora es PROSPECTO.` })
-    setAgendaOpen(false)
-  }
-
-  // Columnas
-  const columns = React.useMemo<ColumnDef<Cliente>[]>(
-    () => [
-      {
-        accessorKey: "nombre",
-        header: "Nombre Completo",
-        cell: ({ row }) => (
-          <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center shrink-0">
-              <User className="h-4 w-4 text-indigo-600" />
-            </div>
-            <div className="flex flex-col">
-              <span className="font-semibold text-slate-800 text-sm md:text-base">
-                {row.getValue("nombre")}
-              </span>
-              <span className="text-xs text-slate-500">CI: {row.original.documento}</span>
-            </div>
-          </div>
-        ),
-      },
-      {
-        accessorKey: "contacto",
-        header: "Contacto",
-        cell: ({ row }) => (
-          <div className="flex flex-col gap-0.5 text-xs text-slate-600">
-            <span className="flex items-center gap-1">
-              <Mail className="h-3 w-3 text-slate-400 shrink-0" />
-              {row.original.email}
-            </span>
-            <span className="flex items-center gap-1">
-              <Phone className="h-3 w-3 text-slate-400 shrink-0" />
-              {row.original.telefono}
-            </span>
-          </div>
-        ),
-      },
-      {
-        accessorKey: "fuente",
-        header: "Fuente",
-        cell: ({ row }) => (
-          <div className="flex items-center gap-1 text-slate-700 font-medium text-sm">
-            <span>{row.getValue("fuente")}</span>
-          </div>
-        ),
-      },
-      {
-        accessorKey: "estado",
-        header: "Estado",
-        cell: ({ row }) => {
-          const estado = row.getValue("estado") as string
-          let statusStyle = ""
-          
-          if (estado === "LEAD") statusStyle = "bg-slate-100 text-slate-600 border-slate-200"
-          else if (estado === "PROSPECTO") statusStyle = "bg-blue-50 text-blue-700 border-blue-200"
-          else if (estado === "RESERVADO") statusStyle = "bg-amber-50 text-amber-700 border-amber-200"
-          else if (estado === "FIRMADO") statusStyle = "bg-emerald-50 text-emerald-700 border-emerald-200"
-
-          return (
-            <span className={`inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-md border uppercase tracking-wider ${statusStyle}`}>
-              {estado}
-            </span>
-          )
-        },
-      },
-      {
-        id: "acciones",
-        header: "Acciones",
-        cell: ({ row }) => {
-          const c = row.original
-          // Acción Agendar Reunión (solo LEAD) y con permiso
-          if (hasWritePermission && c.estado === "LEAD") {
-            return (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleOpenAgenda(c)
-                }}
-                className="text-xs h-8 px-2"
-              >
-                <CalendarPlus className="h-3.5 w-3.5 mr-1 text-blue-500" />
-                Agendar Reunión
-              </Button>
-            )
-          }
-          return null
-        }
-      }
-    ],
-    [hasWritePermission]
-  )
-
-  const table = useReactTable({
-    data: clientes,
-    columns,
-    getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    state: {
-      globalFilter,
+  const createMut = useMutation({
+    mutationFn: (dto: CreateForm) =>
+      clientsApi.create({
+        ci: dto.ci,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        phone: dto.phone,
+        email: dto.email || undefined,
+        source: dto.source || undefined,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["clients"] });
+      qc.invalidateQueries({ queryKey: ["dash", "clients"] });
+      toast.success("Cliente creado");
+      setCreateOpen(false);
     },
-    onGlobalFilterChange: setGlobalFilter,
-  })
+    onError: (e) => toast.error("Error al crear", { description: extractApiError(e) }),
+  });
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, dto }: { id: string; dto: UpdateForm }) =>
+      clientsApi.update(id, {
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        phone: dto.phone,
+        email: dto.email || undefined,
+        source: dto.source || undefined,
+        status: dto.status as ClientStatus,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["clients"] });
+      qc.invalidateQueries({ queryKey: ["dash", "clients"] });
+      toast.success("Cliente actualizado");
+      setEditing(null);
+    },
+    onError: (e) => toast.error("Error al actualizar", { description: extractApiError(e) }),
+  });
+
+  const items: Client[] = clientsQ.data ?? [];
+  const filtered = items
+    .filter((c) => filter === "ALL" || c.status === filter)
+    .filter((c) => {
+      if (!q) return true;
+      const s = q.toLowerCase();
+      return (
+        c.firstName.toLowerCase().includes(s) ||
+        c.lastName.toLowerCase().includes(s) ||
+        c.ci.toLowerCase().includes(s) ||
+        c.phone.includes(s) ||
+        (c.email?.toLowerCase().includes(s) ?? false)
+      );
+    });
 
   return (
-    <div className="min-h-screen bg-slate-50/50 p-4 md:p-8">
-      <div className="mx-auto max-w-7xl space-y-6">
-        
-        {/* Encabezado Principal */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between pb-5 border-b border-slate-200">
+    <div className="bg-slate-50">
+      <div className="mx-auto max-w-[1400px] space-y-5 p-6 md:p-8">
+        <header className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 pb-4">
           <div>
-            <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 bg-linear-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent">
-              Directorio de Clientes
+            <p className="font-mono text-[10px] font-bold uppercase tracking-[0.3em] text-amber-700">
+              § Clientes · {items.length} en cartera
+            </p>
+            <h1 className="mt-1 flex items-center gap-2 text-3xl font-black tracking-tight text-slate-900">
+              <Users className="h-7 w-7 text-amber-600" />
+              Gestión de clientes
             </h1>
-            <p className="text-sm text-slate-500 mt-1">
-              Visualización, búsqueda y registro de clientes interesados o compradores de proyectos INVESTCO.
+            <p className="mt-0.5 text-sm text-slate-500">
+              Pipeline LEAD → CERRADO con state machine validada por backend.
             </p>
           </div>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => clientsQ.refetch()} disabled={clientsQ.isFetching}>
+              <RefreshCw className={clientsQ.isFetching ? "animate-spin" : ""} />
+              Recargar
+            </Button>
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus />
+              Nuevo cliente
+            </Button>
+          </div>
+        </header>
 
-          {/* Modal Registro Cliente */}
-          {hasWritePermission && (
-            <Dialog open={open} onOpenChange={setOpen}>
-              <DialogTrigger asChild>
-                <Button className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-xl shadow-md transition-all hover:scale-[1.02] flex items-center gap-2 cursor-pointer">
-                  <UserPlus className="h-4.5 w-4.5" />
-                  Registrar Cliente
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-[480px] bg-white rounded-2xl shadow-2xl border border-slate-100">
-                <DialogHeader>
-                  <DialogTitle className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                    <UserPlus className="h-5 w-5 text-indigo-600" />
-                    Nuevo Cliente
-                  </DialogTitle>
-                  <DialogDescription className="text-sm text-slate-500 mt-1">
-                    Ingrese los datos para dar de alta un nuevo prospecto o cliente en el sistema.
-                  </DialogDescription>
-                </DialogHeader>
-
-                <form onSubmit={handleSubmit} className="space-y-4.5 py-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="nombre" className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                      Nombre Completo *
-                    </Label>
-                    <Input
-                      id="nombre"
-                      placeholder="Ej. Juan Pérez Roca"
-                      value={nombreForm}
-                      onChange={(e) => setNombreForm(e.target.value)}
-                      className={formErrors.nombre ? "border-red-500 focus-visible:ring-red-500" : ""}
-                    />
-                    {formErrors.nombre && <p className="text-red-500 text-xs font-medium">{formErrors.nombre}</p>}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="documento" className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                      Documento (CI/NIT) *
-                    </Label>
-                    <Input
-                      id="documento"
-                      placeholder="Ej. 1029384 SC"
-                      value={documentoForm}
-                      onChange={(e) => setDocumentoForm(e.target.value)}
-                      className={formErrors.documento ? "border-red-500 focus-visible:ring-red-500" : ""}
-                    />
-                    {formErrors.documento && <p className="text-red-500 text-xs font-medium">{formErrors.documento}</p>}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="email" className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                        Correo Electrónico
-                      </Label>
-                      <Input
-                        id="email"
-                        placeholder="correo@ejemplo.com"
-                        value={emailForm}
-                        onChange={(e) => setEmailForm(e.target.value)}
-                        className={formErrors.email ? "border-red-500 focus-visible:ring-red-500" : ""}
-                      />
-                      {formErrors.email && <p className="text-red-500 text-xs font-medium">{formErrors.email}</p>}
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="telefono" className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                        Teléfono
-                      </Label>
-                      <Input
-                        id="telefono"
-                        placeholder="Ej. 770-12345"
-                        value={telefonoForm}
-                        onChange={(e) => setTelefonoForm(e.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="interes" className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                      Inmueble / Proyecto de Interés
-                    </Label>
-                    <Input
-                      id="interes"
-                      placeholder="Ej. Casa Minimalista Urubó"
-                      value={interesForm}
-                      onChange={(e) => setInteresForm(e.target.value)}
-                    />
-                  </div>
-
-                  <DialogFooter className="pt-4 border-t border-slate-100 flex gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setOpen(false)}
-                      disabled={isSubmitting}
-                      className="border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg cursor-pointer"
-                    >
-                      Cancelar
-                    </Button>
-                    <Button type="submit" disabled={isSubmitting} className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg cursor-pointer flex items-center gap-2">
-                      {isSubmitting ? (
-                        <>
-                          <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                          Guardando...
-                        </>
-                      ) : (
-                        "Guardar Cliente"
-                      )}
-                    </Button>
-                  </DialogFooter>
-                </form>
-              </DialogContent>
-            </Dialog>
-          )}
-        </div>
-
-        {/* Panel de Filtros y Búsqueda */}
-        <div className="flex items-center gap-3 bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <Input
-              type="text"
-              placeholder="Buscar por cliente, documento, correo o inmueble de interés..."
-              value={globalFilter}
-              onChange={(e) => setGlobalFilter(e.target.value)}
-              className="pl-10 pr-4 py-2 border-slate-200 hover:border-slate-300 focus:border-indigo-500 transition-colors bg-slate-50/50 focus:bg-white rounded-lg placeholder-slate-400"
-            />
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative w-full max-w-xs">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input placeholder="Buscar nombre, CI, teléfono…" className="pl-9" value={q} onChange={(e) => setQ(e.target.value)} />
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {(["ALL", ...CLIENT_STATUSES] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setFilter(s)}
+                className={`rounded-full border px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-widest transition-colors ${
+                  filter === s ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"
+                }`}
+              >
+                {s === "ALL" ? `Todos · ${items.length}` : `${s} · ${items.filter((c) => c.status === s).length}`}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Contenedor de la Tabla */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-md overflow-hidden transition-all hover:shadow-lg">
-          <Table>
-            <TableHeader className="bg-slate-50/85 border-b border-slate-200">
-              {table.getHeaderGroups().map((headerGroup) => (
-                <TableRow key={headerGroup.id} className="hover:bg-transparent">
-                  {headerGroup.headers.map((header) => (
-                    <TableHead
-                      key={header.id}
-                      className="text-xs font-bold uppercase tracking-wider text-slate-500 py-4 px-6"
-                    >
-                      {header.isPlaceholder
-                        ? null
-                        : flexRender(
-                            header.column.columnDef.header,
-                            header.getContext()
-                          )}
-                    </TableHead>
-                  ))}
-                </TableRow>
-              ))}
-            </TableHeader>
-            <TableBody>
-              {table.getRowModel().rows?.length ? (
-                table.getRowModel().rows.map((row) => (
-                  <TableRow
-                    key={row.id}
-                    className="hover:bg-indigo-50/20 border-b border-slate-100 transition-colors group cursor-pointer"
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id} className="py-4.5 px-6 align-middle">
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext()
-                        )}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))
-              ) : (
+        <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+          {clientsQ.isLoading ? (
+            <div className="flex items-center justify-center p-12 text-slate-500"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Cargando…</div>
+          ) : filtered.length === 0 ? (
+            <div className="p-10 text-center text-sm text-slate-500">Sin resultados.</div>
+          ) : (
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell
-                    colSpan={columns.length}
-                    className="h-32 text-center text-slate-400"
-                  >
-                    No se encontraron clientes que coincidan con la búsqueda.
-                  </TableCell>
+                  <TableHead>CI</TableHead>
+                  <TableHead>Nombre</TableHead>
+                  <TableHead>Teléfono</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Origen</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead className="w-12"></TableHead>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((c) => (
+                  <TableRow key={c.id}>
+                    <TableCell className="font-mono text-xs">{c.ci}</TableCell>
+                    <TableCell className="text-sm font-semibold text-slate-900">{c.firstName} {c.lastName}</TableCell>
+                    <TableCell className="font-mono text-xs">{c.phone}</TableCell>
+                    <TableCell className="text-xs text-slate-600">{c.email ?? "—"}</TableCell>
+                    <TableCell className="text-xs text-slate-500">{c.source ?? "—"}</TableCell>
+                    <TableCell>
+                      <Badge className={`font-mono text-[9px] font-bold uppercase tracking-widest ${statusColor[c.status]}`}>{c.status}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Button variant="ghost" size="sm" onClick={() => setEditing(c)}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </div>
-
-        {/* Modal Agendar Reunión */}
-        <Dialog open={agendaOpen} onOpenChange={setAgendaOpen}>
-          <DialogContent className="sm:max-w-[425px]">
-            <DialogHeader>
-              <DialogTitle>Agendar Reunión</DialogTitle>
-              <DialogDescription>
-                Programe una reunión con {clienteAgenda?.nombre}.
-              </DialogDescription>
-            </DialogHeader>
-            <form onSubmit={submitAgenda} className="space-y-4 pt-2">
-              <div className="space-y-2">
-                <Label htmlFor="fechaAgenda">Fecha de Reunión *</Label>
-                <Input
-                  id="fechaAgenda"
-                  type="date"
-                  value={fechaAgenda}
-                  onChange={e => setFechaAgenda(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="notasAgenda">Notas / Temas a tratar</Label>
-                <Input
-                  id="notasAgenda"
-                  value={notasAgenda}
-                  onChange={e => setNotasAgenda(e.target.value)}
-                  placeholder="Ej. Revisar cotización Lote 12"
-                />
-              </div>
-              
-              {agendaError && (
-                <div className="text-red-500 text-sm font-semibold bg-red-50 p-2 rounded">
-                  {agendaError}
-                </div>
-              )}
-
-              <DialogFooter className="pt-2">
-                <Button type="button" variant="outline" onClick={() => setAgendaOpen(false)}>Cancelar</Button>
-                <Button type="submit">Agendar y Avanzar a PROSPECTO</Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
-
       </div>
+
+      <CreateClientDialog open={createOpen} onOpenChange={setCreateOpen} onSubmit={(d) => createMut.mutate(d)} isLoading={createMut.isPending} />
+      <EditClientDialog client={editing} onClose={() => setEditing(null)} onSubmit={(d) => editing && updateMut.mutate({ id: editing.id, dto: d })} isLoading={updateMut.isPending} />
     </div>
-  )
+  );
+}
+
+function CreateClientDialog({
+  open, onOpenChange, onSubmit, isLoading,
+}: {
+  open: boolean; onOpenChange: (v: boolean) => void; onSubmit: (d: CreateForm) => void; isLoading: boolean;
+}) {
+  const form = useForm<CreateForm>({ resolver: zodResolver(createSchema), defaultValues: { ci: "", firstName: "", lastName: "", phone: "", email: "", source: "" } });
+  React.useEffect(() => { if (open) form.reset({ ci: "", firstName: "", lastName: "", phone: "", email: "", source: "" }); }, [open, form]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Nuevo cliente</DialogTitle>
+          <DialogDescription>Se creará en estado LEAD.</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>CI / NIT</Label>
+              <Input placeholder="7891234" {...form.register("ci")} />
+              {form.formState.errors.ci && <p className="mt-1 text-xs text-destructive">{form.formState.errors.ci.message}</p>}
+            </div>
+            <div>
+              <Label>Teléfono</Label>
+              <Input placeholder="70012345" {...form.register("phone")} />
+              {form.formState.errors.phone && <p className="mt-1 text-xs text-destructive">{form.formState.errors.phone.message}</p>}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Nombres</Label>
+              <Input {...form.register("firstName")} />
+              {form.formState.errors.firstName && <p className="mt-1 text-xs text-destructive">{form.formState.errors.firstName.message}</p>}
+            </div>
+            <div>
+              <Label>Apellidos</Label>
+              <Input {...form.register("lastName")} />
+              {form.formState.errors.lastName && <p className="mt-1 text-xs text-destructive">{form.formState.errors.lastName.message}</p>}
+            </div>
+          </div>
+          <div>
+            <Label>Email (opcional)</Label>
+            <Input type="email" {...form.register("email")} />
+            {form.formState.errors.email && <p className="mt-1 text-xs text-destructive">{form.formState.errors.email.message}</p>}
+          </div>
+          <div>
+            <Label>Origen / fuente (opcional)</Label>
+            <Input placeholder="Facebook, referido…" {...form.register("source")} />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
+            <Button type="submit" disabled={isLoading}>{isLoading && <Loader2 className="animate-spin" />}Crear</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditClientDialog({
+  client, onClose, onSubmit, isLoading,
+}: {
+  client: Client | null; onClose: () => void; onSubmit: (d: UpdateForm) => void; isLoading: boolean;
+}) {
+  const form = useForm<UpdateForm>({ resolver: zodResolver(updateSchema), defaultValues: { firstName: "", lastName: "", phone: "", email: "", source: "", status: "LEAD" } });
+  React.useEffect(() => {
+    if (client) form.reset({
+      firstName: client.firstName, lastName: client.lastName, phone: client.phone,
+      email: client.email ?? "", source: client.source ?? "", status: client.status,
+    });
+  }, [client, form]);
+
+  return (
+    <Dialog open={!!client} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Editar cliente</DialogTitle>
+          <DialogDescription className="font-mono text-xs">{client?.ci}</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div><Label>Nombres</Label><Input {...form.register("firstName")} /></div>
+            <div><Label>Apellidos</Label><Input {...form.register("lastName")} /></div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><Label>Teléfono</Label><Input {...form.register("phone")} /></div>
+            <div><Label>Email</Label><Input type="email" {...form.register("email")} /></div>
+          </div>
+          <div><Label>Origen</Label><Input {...form.register("source")} /></div>
+          <div>
+            <Label>Estado</Label>
+            <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" {...form.register("status")}>
+              {CLIENT_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <p className="mt-1 font-mono text-[10px] uppercase tracking-widest text-slate-500">
+              Backend valida transiciones permitidas
+            </p>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>
+            <Button type="submit" disabled={isLoading}>{isLoading && <Loader2 className="animate-spin" />}Guardar</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
 }

@@ -1,10 +1,10 @@
-import type { MockSession } from "@/types/auth";
+import type { Session } from "@/types/auth";
 
 const TOKEN_KEY = "investco_token";
 const PERMISSIONS_KEY = "investco_permissions";
 const USER_KEY = "investco_user";
 
-export function saveSession(session: MockSession): void {
+export function saveSession(session: Session): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(TOKEN_KEY, session.token);
   localStorage.setItem(PERMISSIONS_KEY, JSON.stringify(session.permissions));
@@ -18,7 +18,7 @@ export function clearSession(): void {
   localStorage.removeItem(USER_KEY);
 }
 
-export function loadSession(): MockSession | null {
+export function loadSession(): Session | null {
   if (typeof window === "undefined") return null;
   const token = localStorage.getItem(TOKEN_KEY);
   const permissionsRaw = localStorage.getItem(PERMISSIONS_KEY);

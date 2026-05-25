@@ -51,7 +51,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     label: "Reservas",
-    href: "/reservas/nueva",
+    href: "/reservas",
     icon: CalendarPlus,
     permission: PERMISSIONS.RESERVATIONS_READ,
   },
@@ -69,7 +69,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     label: "Proyectos / Obra",
-    href: "/proyectos/torre-pirai",
+    href: "/proyectos",
     icon: FolderKanban,
     permission: PERMISSIONS.PROJECTS_READ,
   },

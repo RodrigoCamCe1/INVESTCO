@@ -36,6 +36,24 @@ export class UsersService {
     };
   }
 
+  async list(filter?: { role?: RoleCode }): Promise<UserWithRoles[]> {
+    const users = await this.prisma.user.findMany({
+      where: {
+        deletedAt: null,
+        isActive: true,
+        ...(filter?.role
+          ? { roleAssignments: { some: { role: { code: filter.role } } } }
+          : {}),
+      },
+      include: { roleAssignments: { include: { role: true } } },
+      orderBy: { fullName: 'asc' },
+    });
+    return users.map((u) => ({
+      user: u,
+      roleCodes: u.roleAssignments.map((a) => a.role.code),
+    }));
+  }
+
   async create(input: {
     email: string;
     password: string;

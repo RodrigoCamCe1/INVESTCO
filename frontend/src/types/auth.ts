@@ -1,15 +1,18 @@
-import type { MockRoleCode, PermissionCode } from "@/constants/permissions";
+import type { PermissionCode, RoleCode } from "@/constants/permissions";
 
-export interface MockSessionUser {
+export interface SessionUser {
   id: string;
   email: string;
   fullName: string;
-  roles: MockRoleCode[];
+  roles: RoleCode[];
   permissions: PermissionCode[];
 }
 
-export interface MockSession {
+export interface Session {
   token: string;
-  user: MockSessionUser;
+  user: SessionUser;
   permissions: PermissionCode[];
 }
+
+export type MockSessionUser = SessionUser;
+export type MockSession = Session;

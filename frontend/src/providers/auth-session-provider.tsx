@@ -10,26 +10,27 @@ import {
   type ReactNode,
 } from "react";
 import { clearSession, loadSession, saveSession } from "@/lib/auth-session";
-import {
-  buildMockSession,
-  findMockUserByRole,
-  validateMockLogin,
-} from "@/lib/mock-auth";
-import type { MockRoleCode } from "@/constants/permissions";
-import type { MockSession } from "@/types/auth";
+import { apiLogin } from "@/lib/auth-api";
+import { extractApiError } from "@/lib/api-client";
+import { permissionsForRoles } from "@/constants/permissions";
+import type { Session } from "@/types/auth";
+
+export interface LoginResult {
+  ok: boolean;
+  error?: string;
+}
 
 interface AuthSessionContextValue {
-  session: MockSession | null;
+  session: Session | null;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => boolean;
-  loginAsRole: (role: MockRoleCode) => MockSession;
+  login: (email: string, password: string) => Promise<LoginResult>;
   logout: () => void;
 }
 
 const AuthSessionContext = createContext<AuthSessionContextValue | null>(null);
 
 export function AuthSessionProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<MockSession | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
@@ -37,24 +38,26 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     setHydrated(true);
   }, []);
 
-  const applySession = useCallback((next: MockSession) => {
+  const applySession = useCallback((next: Session) => {
     saveSession(next);
     setSession(next);
   }, []);
 
-  const login = useCallback((email: string, password: string): boolean => {
-    const next = validateMockLogin(email, password);
-    if (!next) return false;
-    applySession(next);
-    return true;
-  }, [applySession]);
-
-  const loginAsRole = useCallback(
-    (role: MockRoleCode): MockSession => {
-      const credential = findMockUserByRole(role);
-      const next = buildMockSession(credential);
-      applySession(next);
-      return next;
+  const login = useCallback(
+    async (email: string, password: string): Promise<LoginResult> => {
+      try {
+        const res = await apiLogin(email, password);
+        const permissions = permissionsForRoles(res.user.roles);
+        const next: Session = {
+          token: res.accessToken,
+          user: { ...res.user, permissions },
+          permissions,
+        };
+        applySession(next);
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: extractApiError(err, "Credenciales inválidas") };
+      }
     },
     [applySession],
   );
@@ -69,10 +72,9 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
       session: hydrated ? session : null,
       isAuthenticated: hydrated && !!session,
       login,
-      loginAsRole,
       logout,
     }),
-    [session, hydrated, login, loginAsRole, logout],
+    [session, hydrated, login, logout],
   );
 
   return (

@@ -1,25 +1,15 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import { z } from "zod"
-import {
-  ColumnDef,
-  flexRender,
-  getCoreRowModel,
-  getFilteredRowModel,
-  useReactTable,
-} from "@tanstack/react-table"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Button } from "@/components/ui/button"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import * as React from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { toast } from "sonner";
+import { Building2, Plus, RefreshCw, Loader2, Pencil } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -27,366 +17,356 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import { toast } from "sonner"
+} from "@/components/ui/dialog";
 import {
-  Search,
-  Home,
-  Building2,
-  MapPin,
-  Layers,
-  DollarSign,
-  Maximize2,
-  Building,
-  SplitSquareHorizontal,
-} from "lucide-react"
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { propertiesApi } from "@/lib/api/services";
+import { extractApiError } from "@/lib/api-client";
+import type {
+  Property,
+  PropertyStatus,
+  PropertyType,
+} from "@/lib/api/types";
 
-import { useCommercialStore, Inmueble } from "@/store/commercial-store"
-import { formatMoney } from "@/lib/money"
-import { useAuthSession } from "@/providers/auth-session-provider"
-import { PERMISSIONS } from "@/constants/permissions"
+const PROPERTY_TYPES: PropertyType[] = ["LOTE", "CASA", "DEPTO", "DUPLEX"];
+const PROPERTY_STATUSES: PropertyStatus[] = [
+  "DISPONIBLE",
+  "RESERVADO",
+  "VENDIDO",
+  "EN_CONSTRUCCION",
+  "ENTREGADO",
+];
 
-const divideLoteSchema = z.object({
-  m2Hijo1: z.number().min(1, "El área debe ser mayor a 0"),
-  m2Hijo2: z.number().min(1, "El área debe ser mayor a 0"),
-})
+const statusColor: Record<PropertyStatus, string> = {
+  DISPONIBLE: "bg-emerald-100 text-emerald-700",
+  RESERVADO: "bg-amber-100 text-amber-700",
+  VENDIDO: "bg-indigo-100 text-indigo-700",
+  EN_CONSTRUCCION: "bg-violet-100 text-violet-700",
+  ENTREGADO: "bg-sky-100 text-sky-700",
+};
+
+const createSchema = z.object({
+  code: z.string().min(1, "Código requerido"),
+  type: z.enum(PROPERTY_TYPES as [string, ...string[]]),
+  address: z.string().min(3, "Dirección mínimo 3 caracteres"),
+  zone: z.string().min(2, "Zona mínimo 2 caracteres"),
+  m2: z.coerce.number().min(0.01, "m² mayor a 0"),
+});
+type CreateForm = z.infer<typeof createSchema>;
+
+const updateSchema = z.object({
+  address: z.string().min(3),
+  zone: z.string().min(2),
+  m2: z.coerce.number().min(0.01),
+  status: z.enum(PROPERTY_STATUSES as [string, ...string[]]),
+});
+type UpdateForm = z.infer<typeof updateSchema>;
 
 export default function InmueblesPage() {
-  const { session } = useAuthSession()
-  const hasWritePermission = session?.permissions.includes(PERMISSIONS.PROPERTIES_WRITE)
+  const qc = useQueryClient();
+  const [filterStatus, setFilterStatus] = React.useState<PropertyStatus | "ALL">("ALL");
+  const [createOpen, setCreateOpen] = React.useState(false);
+  const [editing, setEditing] = React.useState<Property | null>(null);
 
-  const { inmuebles, dividirLote } = useCommercialStore()
-  const [globalFilter, setGlobalFilter] = React.useState("")
+  const propsQ = useQuery({
+    queryKey: ["properties"],
+    queryFn: propertiesApi.list,
+  });
 
-  // Estado Dialog Dividir Lote
-  const [dividirOpen, setDividirOpen] = React.useState(false)
-  const [loteSelected, setLoteSelected] = React.useState<Inmueble | null>(null)
-  
-  const [m2Hijo1Str, setM2Hijo1Str] = React.useState("")
-  const [m2Hijo2Str, setM2Hijo2Str] = React.useState("")
-  const [dividirError, setDividirError] = React.useState("")
-
-  const handleOpenDividir = (inmueble: Inmueble) => {
-    setLoteSelected(inmueble)
-    setM2Hijo1Str("")
-    setM2Hijo2Str("")
-    setDividirError("")
-    setDividirOpen(true)
-  }
-
-  const submitDividir = (e: React.FormEvent) => {
-    e.preventDefault()
-    setDividirError("")
-    
-    const h1 = parseFloat(m2Hijo1Str)
-    const h2 = parseFloat(m2Hijo2Str)
-
-    const parsed = divideLoteSchema.safeParse({ m2Hijo1: h1, m2Hijo2: h2 })
-    if (!parsed.success) {
-      setDividirError("Los valores ingresados no son válidos.")
-      return
-    }
-
-    if (!loteSelected) return
-    
-    if (h1 + h2 > loteSelected.superficie) {
-      setDividirError(`La suma de las áreas (${h1 + h2} m²) no puede ser mayor al lote original (${loteSelected.superficie} m²).`)
-      return
-    }
-
-    dividirLote(loteSelected.id, h1, h2)
-    toast.success("Lote dividido con éxito", { description: "Se han generado dos nuevos lotes en el catálogo." })
-    setDividirOpen(false)
-  }
-
-  // Definición de columnas
-  const columns = React.useMemo<ColumnDef<Inmueble>[]>(
-    () => [
-      {
-        accessorKey: "codigo",
-        header: "Código",
-        cell: ({ row }) => (
-          <span className="font-mono text-xs bg-slate-100 text-slate-700 px-2.5 py-1 rounded-md border border-slate-200/60 font-semibold shadow-2xs">
-            {row.getValue("codigo")}
-          </span>
-        ),
-      },
-      {
-        accessorKey: "nombre",
-        header: "Inmueble / Proyecto",
-        cell: ({ row }) => (
-          <div className="flex flex-col">
-            <span className="font-semibold text-slate-800 text-sm md:text-base">
-              {row.original.nombre}
-            </span>
-            <span className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
-              <Building className="h-3 w-3 text-slate-400" />
-              {row.original.proyecto}
-            </span>
-          </div>
-        ),
-      },
-      {
-        accessorKey: "tipo",
-        header: "Tipo",
-        cell: ({ row }) => {
-          const tipo = row.getValue("tipo") as string
-          return (
-            <div className="flex items-center gap-1.5 text-slate-700 font-medium text-sm">
-              {tipo === "Lote" && <Layers className="h-4 w-4 text-emerald-500" />}
-              {tipo === "Casa" && <Home className="h-4 w-4 text-blue-500" />}
-              {tipo === "Dúplex" && <Building2 className="h-4 w-4 text-purple-500" />}
-              <span>{tipo}</span>
-            </div>
-          )
-        },
-      },
-      {
-        accessorKey: "ubicacion",
-        header: "Ubicación",
-        cell: ({ row }) => (
-          <div className="flex items-center gap-1 text-slate-600 text-sm">
-            <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-            <span className="truncate max-w-[180px]">{row.getValue("ubicacion")}</span>
-          </div>
-        ),
-      },
-      {
-        accessorKey: "superficie",
-        header: "Superficie",
-        cell: ({ row }) => (
-          <div className="flex items-center gap-1 text-slate-600 text-sm">
-            <Maximize2 className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-            <span>{row.getValue("superficie")} m²</span>
-          </div>
-        ),
-      },
-      {
-        accessorKey: "precio",
-        header: "Precio Base",
-        cell: ({ row }) => (
-          <div className="flex items-center text-slate-900 font-semibold text-sm">
-            <DollarSign className="h-3.5 w-3.5 text-slate-400 -mr-0.5" />
-            <span>{formatMoney(row.getValue("precio"))}</span>
-          </div>
-        ),
-      },
-      {
-        accessorKey: "estado",
-        header: "Estado",
-        cell: ({ row }) => {
-          const estado = row.getValue("estado") as string
-          let statusStyle = ""
-          
-          if (estado === "DISPONIBLE") {
-            statusStyle = "bg-emerald-50 text-emerald-700 border-emerald-200/80 shadow-emerald-100/50"
-          } else if (estado === "RESERVADO") {
-            statusStyle = "bg-amber-50 text-amber-700 border-amber-200/80 shadow-amber-100/50"
-          } else {
-            statusStyle = "bg-slate-100 text-slate-600 border-slate-200/80 shadow-slate-100/50"
-          }
-
-          return (
-            <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full border shadow-sm ${statusStyle}`}>
-              <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
-                estado === "DISPONIBLE" ? "bg-emerald-500" : estado === "RESERVADO" ? "bg-amber-500" : "bg-slate-400"
-              }`} />
-              {estado}
-            </span>
-          )
-        },
-      },
-      {
-        id: "acciones",
-        header: "Acciones",
-        cell: ({ row }) => {
-          const i = row.original
-          // Acción "Dividir Lote" solo visible para Lotes DISPONIBLES y si tiene permiso PROPERTIES_WRITE
-          if (hasWritePermission && i.tipo === "Lote" && i.estado === "DISPONIBLE") {
-            return (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleOpenDividir(i)
-                }}
-                className="text-xs h-8 px-2"
-              >
-                <SplitSquareHorizontal className="h-3.5 w-3.5 mr-1 text-indigo-500" />
-                Dividir
-              </Button>
-            )
-          }
-          return null
-        }
-      }
-    ],
-    [hasWritePermission]
-  )
-
-  const table = useReactTable({
-    data: inmuebles,
-    columns,
-    getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    state: {
-      globalFilter,
+  const createMut = useMutation({
+    mutationFn: (dto: CreateForm) =>
+      propertiesApi.create({
+        code: dto.code,
+        type: dto.type as PropertyType,
+        address: dto.address,
+        zone: dto.zone,
+        m2: dto.m2,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["properties"] });
+      qc.invalidateQueries({ queryKey: ["dash", "properties"] });
+      toast.success("Inmueble creado");
+      setCreateOpen(false);
     },
-    onGlobalFilterChange: setGlobalFilter,
-  })
+    onError: (e) => toast.error("Error al crear", { description: extractApiError(e) }),
+  });
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, dto }: { id: string; dto: UpdateForm }) =>
+      propertiesApi.update(id, {
+        address: dto.address,
+        zone: dto.zone,
+        m2: dto.m2,
+        status: dto.status as PropertyStatus,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["properties"] });
+      qc.invalidateQueries({ queryKey: ["dash", "properties"] });
+      toast.success("Inmueble actualizado");
+      setEditing(null);
+    },
+    onError: (e) => toast.error("Error al actualizar", { description: extractApiError(e) }),
+  });
+
+  const items: Property[] = propsQ.data ?? [];
+  const filtered =
+    filterStatus === "ALL"
+      ? items
+      : items.filter((i) => i.status === filterStatus);
 
   return (
-    <div className="min-h-screen bg-slate-50/50 p-4 md:p-8">
-      <div className="mx-auto max-w-7xl space-y-6">
-        
-        {/* Encabezado Principal */}
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between pb-5 border-b border-slate-200">
+    <div className="bg-slate-50">
+      <div className="mx-auto max-w-[1400px] space-y-5 p-6 md:p-8">
+        <header className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 pb-4">
           <div>
-            <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 bg-linear-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent">
-              Catálogo de Inmuebles
+            <p className="font-mono text-[10px] font-bold uppercase tracking-[0.3em] text-amber-700">
+              § Inmuebles · {items.length} en cartera
+            </p>
+            <h1 className="mt-1 flex items-center gap-2 text-3xl font-black tracking-tight text-slate-900">
+              <Building2 className="h-7 w-7 text-indigo-600" />
+              Catálogo de inmuebles
             </h1>
-            <p className="text-sm text-slate-500 mt-1">
-              Administración y consulta del inventario de lotes, casas y dúplex de INVESTCO.
+            <p className="mt-0.5 text-sm text-slate-500">
+              Propiedades en distintas etapas del ciclo comercial.
             </p>
           </div>
-          
-          {/* Métricas rápidas */}
-          <div className="flex gap-4 items-center mt-3 sm:mt-0 bg-white border border-slate-200 rounded-xl p-3 shadow-xs">
-            <div className="text-center px-3 border-r border-slate-100">
-              <span className="block text-xs font-medium text-slate-400 uppercase">Total</span>
-              <span className="text-lg font-bold text-slate-800">{inmuebles.length}</span>
-            </div>
-            <div className="text-center px-3 border-r border-slate-100">
-              <span className="block text-xs font-medium text-emerald-500 uppercase">Disp.</span>
-              <span className="text-lg font-bold text-emerald-600">
-                {inmuebles.filter(i => i.estado === "DISPONIBLE").length}
-              </span>
-            </div>
-            <div className="text-center px-3">
-              <span className="block text-xs font-medium text-amber-500 uppercase">Reser.</span>
-              <span className="text-lg font-bold text-amber-600">
-                {inmuebles.filter(i => i.estado === "RESERVADO").length}
-              </span>
-            </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => propsQ.refetch()}
+              disabled={propsQ.isFetching}
+            >
+              <RefreshCw className={propsQ.isFetching ? "animate-spin" : ""} />
+              Recargar
+            </Button>
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus />
+              Nuevo inmueble
+            </Button>
           </div>
+        </header>
+
+        <div className="flex flex-wrap gap-1.5">
+          {(["ALL", ...PROPERTY_STATUSES] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => setFilterStatus(s)}
+              className={`rounded-full border px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-widest transition-colors ${
+                filterStatus === s
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"
+              }`}
+            >
+              {s === "ALL" ? `Todos · ${items.length}` : `${s} · ${items.filter((i) => i.status === s).length}`}
+            </button>
+          ))}
         </div>
 
-        {/* Panel de Filtros y Búsqueda */}
-        <div className="flex items-center gap-3 bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <Input
-              type="text"
-              placeholder="Buscar por inmueble, código o estado..."
-              value={globalFilter}
-              onChange={(e) => setGlobalFilter(e.target.value)}
-              className="pl-10 pr-4 py-2 border-slate-200 hover:border-slate-300 focus:border-indigo-500 transition-colors bg-slate-50/50 focus:bg-white rounded-lg placeholder-slate-400"
-            />
-          </div>
-        </div>
-
-        {/* Contenedor de la Tabla */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-md overflow-hidden transition-all hover:shadow-lg">
-          <Table>
-            <TableHeader className="bg-slate-50/85 border-b border-slate-200">
-              {table.getHeaderGroups().map((headerGroup) => (
-                <TableRow key={headerGroup.id} className="hover:bg-transparent">
-                  {headerGroup.headers.map((header) => (
-                    <TableHead
-                      key={header.id}
-                      className="text-xs font-bold uppercase tracking-wider text-slate-500 py-4 px-6"
-                    >
-                      {header.isPlaceholder
-                        ? null
-                        : flexRender(
-                            header.column.columnDef.header,
-                            header.getContext()
-                          )}
-                    </TableHead>
-                  ))}
-                </TableRow>
-              ))}
-            </TableHeader>
-            <TableBody>
-              {table.getRowModel().rows?.length ? (
-                table.getRowModel().rows.map((row) => (
-                  <TableRow
-                    key={row.id}
-                    className="hover:bg-indigo-50/20 border-b border-slate-100 transition-colors group cursor-pointer"
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id} className="py-4.5 px-6 align-middle">
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext()
-                        )}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))
-              ) : (
+        <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+          {propsQ.isLoading ? (
+            <div className="flex items-center justify-center p-12 text-slate-500">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Cargando…
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="p-10 text-center text-sm text-slate-500">
+              Sin inmuebles en este estado.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell
-                    colSpan={columns.length}
-                    className="h-32 text-center text-slate-400"
-                  >
-                    No se encontraron inmuebles.
-                  </TableCell>
+                  <TableHead>Código</TableHead>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead>Dirección</TableHead>
+                  <TableHead>Zona</TableHead>
+                  <TableHead className="text-right">m²</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead className="w-12"></TableHead>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((p) => (
+                  <TableRow key={p.id}>
+                    <TableCell className="font-mono text-xs font-bold text-slate-700">
+                      {p.code}
+                    </TableCell>
+                    <TableCell>
+                      <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                        {p.type}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-sm">{p.address}</TableCell>
+                    <TableCell className="text-sm text-slate-600">{p.zone}</TableCell>
+                    <TableCell className="text-right font-mono text-xs tabular-nums">
+                      {Number(p.m2).toFixed(0)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge className={`font-mono text-[9px] font-bold uppercase tracking-widest ${statusColor[p.status]}`}>
+                        {p.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Button variant="ghost" size="sm" onClick={() => setEditing(p)}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </div>
-
-        {/* Dialog Dividir Lote */}
-        <Dialog open={dividirOpen} onOpenChange={setDividirOpen}>
-          <DialogContent className="sm:max-w-[425px]">
-            <DialogHeader>
-              <DialogTitle>Dividir Lote</DialogTitle>
-              <DialogDescription>
-                Lote Padre: {loteSelected?.nombre} (Superficie: {loteSelected?.superficie} m²)
-              </DialogDescription>
-            </DialogHeader>
-            <form onSubmit={submitDividir} className="space-y-4 pt-2">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="m2Hijo1">m² Lote A *</Label>
-                  <Input
-                    id="m2Hijo1"
-                    type="number"
-                    value={m2Hijo1Str}
-                    onChange={e => setM2Hijo1Str(e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="m2Hijo2">m² Lote B *</Label>
-                  <Input
-                    id="m2Hijo2"
-                    type="number"
-                    value={m2Hijo2Str}
-                    onChange={e => setM2Hijo2Str(e.target.value)}
-                    required
-                  />
-                </div>
-              </div>
-              
-              {dividirError && (
-                <div className="text-red-500 text-sm font-semibold bg-red-50 p-2 rounded">
-                  {dividirError}
-                </div>
-              )}
-
-              <DialogFooter className="pt-2">
-                <Button type="button" variant="outline" onClick={() => setDividirOpen(false)}>Cancelar</Button>
-                <Button type="submit">Guardar División</Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
-
       </div>
+
+      <CreateDialog open={createOpen} onOpenChange={setCreateOpen} onSubmit={(d) => createMut.mutate(d)} isLoading={createMut.isPending} />
+      <EditDialog property={editing} onClose={() => setEditing(null)} onSubmit={(d) => editing && updateMut.mutate({ id: editing.id, dto: d })} isLoading={updateMut.isPending} />
     </div>
-  )
+  );
+}
+
+function CreateDialog({
+  open,
+  onOpenChange,
+  onSubmit,
+  isLoading,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  onSubmit: (d: CreateForm) => void;
+  isLoading: boolean;
+}) {
+  const form = useForm<CreateForm>({
+    resolver: zodResolver(createSchema),
+    defaultValues: { code: "", type: "CASA", address: "", zone: "", m2: 100 },
+  });
+
+  React.useEffect(() => {
+    if (open) form.reset({ code: "", type: "CASA", address: "", zone: "", m2: 100 });
+  }, [open, form]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Nuevo inmueble</DialogTitle>
+          <DialogDescription>Se creará en estado DISPONIBLE.</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="code">Código</Label>
+              <Input id="code" placeholder="INM-001" {...form.register("code")} />
+              {form.formState.errors.code && <p className="mt-1 text-xs text-destructive">{form.formState.errors.code.message}</p>}
+            </div>
+            <div>
+              <Label htmlFor="type">Tipo</Label>
+              <select id="type" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" {...form.register("type")}>
+                {PROPERTY_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="address">Dirección</Label>
+            <Input id="address" placeholder="Av. Banzer 1234" {...form.register("address")} />
+            {form.formState.errors.address && <p className="mt-1 text-xs text-destructive">{form.formState.errors.address.message}</p>}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="zone">Zona</Label>
+              <Input id="zone" placeholder="Norte" {...form.register("zone")} />
+              {form.formState.errors.zone && <p className="mt-1 text-xs text-destructive">{form.formState.errors.zone.message}</p>}
+            </div>
+            <div>
+              <Label htmlFor="m2">m²</Label>
+              <Input id="m2" type="number" step="0.01" {...form.register("m2")} />
+              {form.formState.errors.m2 && <p className="mt-1 text-xs text-destructive">{form.formState.errors.m2.message}</p>}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
+            <Button type="submit" disabled={isLoading}>
+              {isLoading && <Loader2 className="animate-spin" />}
+              Crear
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditDialog({
+  property,
+  onClose,
+  onSubmit,
+  isLoading,
+}: {
+  property: Property | null;
+  onClose: () => void;
+  onSubmit: (d: UpdateForm) => void;
+  isLoading: boolean;
+}) {
+  const form = useForm<UpdateForm>({
+    resolver: zodResolver(updateSchema),
+    defaultValues: { address: "", zone: "", m2: 100, status: "DISPONIBLE" },
+  });
+
+  React.useEffect(() => {
+    if (property) {
+      form.reset({
+        address: property.address,
+        zone: property.zone,
+        m2: Number(property.m2),
+        status: property.status,
+      });
+    }
+  }, [property, form]);
+
+  return (
+    <Dialog open={!!property} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Editar inmueble</DialogTitle>
+          <DialogDescription className="font-mono text-xs">{property?.code}</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
+          <div>
+            <Label htmlFor="e-address">Dirección</Label>
+            <Input id="e-address" {...form.register("address")} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="e-zone">Zona</Label>
+              <Input id="e-zone" {...form.register("zone")} />
+            </div>
+            <div>
+              <Label htmlFor="e-m2">m²</Label>
+              <Input id="e-m2" type="number" step="0.01" {...form.register("m2")} />
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="e-status">Estado</Label>
+            <select id="e-status" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" {...form.register("status")}>
+              {PROPERTY_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>
+            <Button type="submit" disabled={isLoading}>
+              {isLoading && <Loader2 className="animate-spin" />}
+              Guardar
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
 }
