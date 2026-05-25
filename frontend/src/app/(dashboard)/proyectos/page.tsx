@@ -59,7 +59,12 @@ export default function ProyectosPage() {
   const [filter, setFilter] = React.useState<ProjectStatus | "ALL">("ALL");
   const [createOpen, setCreateOpen] = React.useState(false);
 
-  const projectsQ = useQuery({ queryKey: ["projects"], queryFn: projectsApi.list });
+  const projectsAllQ = useQuery({ queryKey: ["projects"], queryFn: projectsApi.list });
+  // Filtrar solo UNIT_SALE — los CONSTRUCTION_MASTER se ven dentro del Desarrollo
+  const projectsQ = {
+    ...projectsAllQ,
+    data: (projectsAllQ.data ?? []).filter((p) => p.kind === "UNIT_SALE"),
+  };
   const contractsQ = useQuery({ queryKey: ["contracts"], queryFn: contractsApi.list });
   const propsQ = useQuery({ queryKey: ["properties"], queryFn: propertiesApi.list });
   const clientsQ = useQuery({ queryKey: ["clients"], queryFn: () => clientsApi.list() });
@@ -73,7 +78,7 @@ export default function ProyectosPage() {
 
   const signedContractsWithoutProject = (contractsQ.data ?? []).filter((c) => {
     if (c.status !== "FIRMADO") return false;
-    return !(projectsQ.data ?? []).some((p) => p.contractId === c.id);
+    return !(projectsAllQ.data ?? []).some((p) => p.contractId === c.id);
   });
 
   const createMut = useMutation({
@@ -89,8 +94,9 @@ export default function ProyectosPage() {
       qc.invalidateQueries({ queryKey: ["projects"] });
       qc.invalidateQueries({ queryKey: ["properties"] });
       qc.invalidateQueries({ queryKey: ["contracts"] });
+      qc.invalidateQueries({ queryKey: ["development"] });
       qc.invalidateQueries({ queryKey: ["dash"] });
-      toast.success("Proyecto creado · Property → EN_CONSTRUCCION");
+      toast.success("Proyecto de venta creado · Property → EN_CONSTRUCCION");
       setCreateOpen(false);
     },
     onError: (e) => toast.error("Error al crear proyecto", { description: extractApiError(e) }),
@@ -105,14 +111,14 @@ export default function ProyectosPage() {
         <header className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 pb-4">
           <div>
             <p className="font-mono text-[10px] font-bold uppercase tracking-[0.3em] text-amber-700">
-              § Proyectos · {items.length} totales · {items.filter((p) => p.status === "EN_EJECUCION").length} en ejecución
+              § Ventas de unidad · {items.length} totales · {items.filter((p) => p.status === "EN_EJECUCION").length} en ejecución
             </p>
             <h1 className="mt-1 flex items-center gap-2 text-3xl font-black tracking-tight text-slate-900">
               <HardHat className="h-7 w-7 text-amber-600" />
-              Proyectos / Obra
+              Proyectos de venta de unidad
             </h1>
-            <p className="mt-0.5 text-sm text-slate-500">
-              Cada proyecto se crea desde un contrato firmado. Property pasa a EN_CONSTRUCCION.
+            <p className="mt-0.5 max-w-2xl text-sm text-slate-500">
+              Tracking individual de cada unidad vendida: acabados, calidad, entrega. Se crea desde un contrato FIRMADO. La obra del edificio entero se gestiona dentro de cada desarrollo.
             </p>
           </div>
           <div className="flex gap-2">
