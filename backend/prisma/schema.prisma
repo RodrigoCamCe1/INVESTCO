@@ -63,6 +63,105 @@ model RoleAssignment {
   @@unique([userId, roleId])
 }
 
+// ======== DESARROLLOS (LIFECYCLE) ========
+enum DevelopmentStatus {
+  PLANIFICACION
+  ADQUISICION
+  PERMISOS
+  EN_CONSTRUCCION
+  COMERCIALIZACION
+  COMPLETADO
+  CANCELADO
+}
+
+model Development {
+  id                     String                  @id @default(uuid())
+  code                   String                  @unique
+  name                   String
+  zone                   String
+  address                String
+  description            String?
+  acquisitionBudget      Decimal
+  constructionBudget     Decimal
+  currency               String                  @default("BOB")
+  estimatedUnits         Int                     @default(1)
+  startDate              DateTime
+  estimatedCompletion    DateTime?
+  status                 DevelopmentStatus       @default(PLANIFICACION)
+  acquisitionContracts   AcquisitionContract[]
+  permits                Permit[]
+  projects               Project[]
+  units                  Property[]              @relation("DevelopmentUnits")
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  deletedAt              DateTime?
+
+  @@index([status])
+  @@index([deletedAt])
+}
+
+enum AcquisitionStatus {
+  NEGOCIACION
+  FIRMADO
+  CANCELADO
+}
+
+model AcquisitionContract {
+  id                String              @id @default(uuid())
+  developmentId     String
+  sellerName        String
+  sellerCi          String?
+  sellerPhone       String?
+  totalAmount       Decimal
+  currency          String              @default("BOB")
+  signedDate        DateTime?
+  notes             String?
+  status            AcquisitionStatus   @default(NEGOCIACION)
+  development       Development         @relation(fields: [developmentId], references: [id])
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@index([developmentId])
+  @@index([status])
+}
+
+enum PermitType {
+  MUNICIPAL
+  BOMBEROS
+  AMBIENTAL
+  CATASTRAL
+  SERVICIOS
+}
+
+enum PermitStatus {
+  GESTIONANDO
+  APROBADO
+  RECHAZADO
+  VENCIDO
+}
+
+model Permit {
+  id              String        @id @default(uuid())
+  developmentId   String
+  type            PermitType
+  permitNumber    String?
+  issuedDate      DateTime?
+  validUntil      DateTime?
+  status          PermitStatus  @default(GESTIONANDO)
+  notes           String?
+  development     Development   @relation(fields: [developmentId], references: [id])
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([developmentId])
+  @@index([status])
+}
+
+enum ProjectKind {
+  CONSTRUCTION_MASTER
+  UNIT_SALE
+}
+
 // ======== INMUEBLES ========
 enum PropertyType {
   LOTE
@@ -92,6 +191,8 @@ model Property {
   childProperties  Property[]      @relation("PropertyHierarchy")
   modelBlueprintId String?
   modelBlueprint   BlueprintModel? @relation(fields: [modelBlueprintId], references: [id])
+  developmentId    String?
+  development      Development?    @relation("DevelopmentUnits", fields: [developmentId], references: [id])
   reservations     Reservation[]
   contracts        Contract[]
   project          Project?
@@ -101,6 +202,7 @@ model Property {
 
   @@index([status])
   @@index([deletedAt])
+  @@index([developmentId])
 }
 
 // ======== PLANOS ========
@@ -309,8 +411,10 @@ enum ActivityStatus {
 model Project {
   id                   String                @id @default(uuid())
   code                 String                @unique
-  propertyId           String                @unique
-  contractId           String                @unique
+  kind                 ProjectKind           @default(UNIT_SALE)
+  propertyId           String?               @unique
+  contractId           String?               @unique
+  developmentId        String?
   startDate            DateTime
   endDate              DateTime?
   currentStage         ProjectStage          @default(PRELIMINARES)
@@ -318,8 +422,9 @@ model Project {
   projectManagerId     String
   qualityManagerId     String?
   budgetManagerId      String?
-  property             Property              @relation(fields: [propertyId], references: [id])
-  contract             Contract              @relation(fields: [contractId], references: [id])
+  property             Property?             @relation(fields: [propertyId], references: [id])
+  contract             Contract?             @relation(fields: [contractId], references: [id])
+  development          Development?          @relation(fields: [developmentId], references: [id])
   activities           Activity[]
   staffAssignments     StaffAssignment[]
   materialRequirements MaterialRequirement[]
@@ -337,6 +442,8 @@ model Project {
   @@index([status])
   @@index([currentStage])
   @@index([deletedAt])
+  @@index([kind])
+  @@index([developmentId])
 }
 
 model Preliminary {

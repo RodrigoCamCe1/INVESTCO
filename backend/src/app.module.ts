@@ -1,7 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { AcquisitionsModule } from './acquisitions/acquisitions.module';
 import { AuthModule } from './auth/auth.module';
 import { BlueprintsModule } from './blueprints/blueprints.module';
+import { DevelopmentsModule } from './developments/developments.module';
+import { PermitsModule } from './permits/permits.module';
 import { BudgetModule } from './budget/budget.module';
 import { ClientsModule } from './clients/clients.module';
 import { ContractsModule } from './contracts/contracts.module';
@@ -28,6 +31,9 @@ import { WorkersModule } from './workers/workers.module';
     BankModule,
     UsersModule,
     AuthModule,
+    DevelopmentsModule,
+    AcquisitionsModule,
+    PermitsModule,
     PropertiesModule,
     ClientsModule,
     ReservationsModule,

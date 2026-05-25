@@ -76,6 +76,13 @@ export class DeliveryService {
           include: { property: true, contract: { include: { client: true } } },
         });
 
+        if (!project.property || !project.propertyId) {
+          throw new BadRequestException('Proyecto sin inmueble asociado: no se puede completar entrega');
+        }
+        if (!project.contract) {
+          throw new BadRequestException('Proyecto sin contrato asociado: no se puede completar entrega');
+        }
+
         if (project.property.status !== PropertyStatus.ENTREGADO) {
           assertPropertyTransition(project.property.status, PropertyStatus.ENTREGADO);
           await tx.property.update({
